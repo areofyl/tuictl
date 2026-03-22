@@ -38,7 +38,7 @@ static void rebuild_network_list(MenuItem *nets_cat) {
 
     int count = 0;
     char **lines = run_cmd_lines(
-        "nmcli -t -f SSID,SIGNAL,SECURITY,IN-USE device wifi list 2>/dev/null", &count);
+        "nmcli -t -f SSID,SIGNAL,SECURITY,IN-USE device wifi list --rescan no 2>/dev/null", &count);
 
     for (int i = 0; i < count; i++) {
         char *line = lines[i];
