@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "menu.h"
+#include "ui.h"
 
 MenuItem *menu_item_new(const char *label, const char *desc, MenuItemType type) {
     MenuItem *item = calloc(1, sizeof(MenuItem));
@@ -177,6 +179,21 @@ void menu_render(MenuState *state, WINDOW *win) {
     mvwhline(win, 0, 0, ACS_HLINE, maxx);
     mvwprintw(win, 0, margin, " tuictl ");
     wattroff(win, A_BOLD | COLOR_PAIR(1));
+
+    /* Notification (right-aligned, fades after 3s) */
+    if (g_ui && g_ui->notification[0]) {
+        time_t now = time(NULL);
+        if (now - g_ui->notify_time < 3) {
+            int len = strlen(g_ui->notification);
+            int nx = maxx - len - margin - 2;
+            if (nx < margin + 10) nx = margin + 10;
+            wattron(win, A_BOLD | COLOR_PAIR(4));
+            mvwprintw(win, 0, nx, " %s ", g_ui->notification);
+            wattroff(win, A_BOLD | COLOR_PAIR(4));
+        } else {
+            g_ui->notification[0] = '\0';
+        }
+    }
 
     /* Breadcrumb */
     char breadcrumb[512];
