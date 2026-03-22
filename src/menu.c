@@ -26,14 +26,36 @@ void menu_add_child(MenuItem *parent, MenuItem *child) {
 
 void menu_free(MenuItem *item) {
     if (!item) return;
-    menu_free(item->children);
-    menu_free(item->next);
-    if (item->options) {
-        for (int i = 0; i < item->option_count; i++)
-            free(item->options[i]);
-        free(item->options);
+    /* Free children and siblings iteratively to avoid double-free */
+    MenuItem *sibling = item;
+    while (sibling) {
+        MenuItem *next_sib = sibling->next;
+        /* Recursively free this node's children */
+        MenuItem *child = sibling->children;
+        while (child) {
+            MenuItem *next_child = child->next;
+            child->next = NULL;
+            menu_free(child);
+            child = next_child;
+        }
+        if (sibling->options) {
+            for (int i = 0; i < sibling->option_count; i++)
+                free(sibling->options[i]);
+            free(sibling->options);
+        }
+        free(sibling->userdata);
+        sibling->children = NULL;
+        sibling->next = NULL;
+        free(sibling);
+        sibling = next_sib;
     }
-    free(item);
+}
+
+/* Free all children of a parent, leaving the parent intact */
+void menu_free_children(MenuItem *parent) {
+    if (!parent || !parent->children) return;
+    menu_free(parent->children);
+    parent->children = NULL;
 }
 
 int menu_child_count(MenuItem *parent) {
