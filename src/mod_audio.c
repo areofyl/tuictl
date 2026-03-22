@@ -3,15 +3,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "ui.h"
 
 /* Forward declarations */
 static void get_volume_and_mute(const char *target, int *vol_out, int *muted_out);
 
 static void mute_activate(MenuItem *self) {
-    if (self->toggled)
+    if (self->toggled) {
         run_cmd_silent("wpctl set-mute @DEFAULT_AUDIO_SINK@ 1");
-    else
+        ui_notify("Muted");
+    } else {
         run_cmd_silent("wpctl set-mute @DEFAULT_AUDIO_SINK@ 0");
+        ui_notify("Unmuted");
+    }
 }
 
 static void mic_mute_activate(MenuItem *self) {
