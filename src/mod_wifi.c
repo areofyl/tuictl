@@ -6,10 +6,13 @@
 #include "ui.h"
 
 static void wifi_toggle_activate(MenuItem *self) {
-    if (self->toggled)
+    if (self->toggled) {
         run_cmd_silent("nmcli radio wifi on");
-    else
+        ui_notify("WiFi enabled");
+    } else {
         run_cmd_silent("nmcli radio wifi off");
+        ui_notify("WiFi disabled");
+    }
 }
 
 static void wifi_scan_activate(MenuItem *self) {
@@ -29,21 +32,30 @@ static void wifi_connect_activate(MenuItem *self) {
         *(paren + 1) = '\0';
     }
 
-    /* Try connecting without password first */
     char cmd[512], result[256];
     snprintf(cmd, sizeof(cmd), "nmcli device wifi connect \"%s\" 2>&1", ssid);
     run_cmd(cmd, result, sizeof(result));
 
-    /* If it needs a password, prompt */
-    if (strstr(result, "Secrets were required") || strstr(result, "No suitable") ||
-        strstr(result, "Error")) {
+    if (strstr(result, "successfully")) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Connected to %s", ssid);
+        ui_notify(msg);
+    } else if (strstr(result, "Secrets were required") || strstr(result, "No suitable") ||
+               strstr(result, "Error")) {
         char pass[128];
         char title[64];
         snprintf(title, sizeof(title), "Connect to %s", ssid);
         if (ui_input_popup(title, "Password:", pass, sizeof(pass), 1)) {
             snprintf(cmd, sizeof(cmd),
                      "nmcli device wifi connect \"%s\" password \"%s\" 2>&1", ssid, pass);
-            run_cmd_silent(cmd);
+            run_cmd(cmd, result, sizeof(result));
+            if (strstr(result, "successfully")) {
+                char msg[128];
+                snprintf(msg, sizeof(msg), "Connected to %s", ssid);
+                ui_notify(msg);
+            } else {
+                ui_notify("Connection failed");
+            }
         }
     }
 }
