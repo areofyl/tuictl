@@ -4,6 +4,8 @@
 #include <time.h>
 #include "menu.h"
 
+enum UIMode { MODE_NORMAL, MODE_COMMAND, MODE_SEARCH };
+
 typedef struct {
     WINDOW *win;
     MenuState menu;
@@ -11,6 +13,11 @@ typedef struct {
     void (*refresh_all)(MenuState *state);
     char notification[128];
     time_t notify_time;
+    enum UIMode mode;
+    char cmdbuf[128];
+    int cmdpos;
+    char pending_key;  /* for multi-key sequences like gg */
+    int repeat_count;  /* for number prefixes like 5j */
 } UIState;
 
 /* Global pointer so modules can send notifications */
