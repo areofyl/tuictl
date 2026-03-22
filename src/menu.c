@@ -72,6 +72,10 @@ void menu_activate(MenuState *state) {
 
     switch (item->type) {
     case MENU_CATEGORY:
+        if (item->on_lazy_load && !item->lazy_loaded) {
+            item->on_lazy_load(item);
+            item->lazy_loaded = 1;
+        }
         state->current_menu = item;
         state->cursor = 0;
         state->scroll_offset = 0;
