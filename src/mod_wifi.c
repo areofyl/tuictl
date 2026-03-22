@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "backend.h"
 #include "ui.h"
 
@@ -112,25 +113,46 @@ static void wifi_scan_and_refresh(MenuItem *self) {
     }
 }
 
-static void wifi_refresh(MenuItem *module_root) {
-    /* Update WiFi toggle state */
-    char buf[64];
-    run_cmd("nmcli radio wifi", buf, sizeof(buf));
-    MenuItem *toggle = module_root->children;
-    if (toggle && toggle->type == MENU_TOGGLE)
-        toggle->toggled = (strcmp(buf, "enabled") == 0);
+/* Cached status to avoid duplicate nmcli calls between refresh_fn and get_status */
+static char wifi_status_cache[64] = "";
+static time_t wifi_status_time = 0;
 
-    /* Update connected network info */
+static void wifi_update_status_cache(void) {
+    char radio[16];
+    run_cmd("nmcli radio wifi", radio, sizeof(radio));
+    if (strcmp(radio, "enabled") != 0) {
+        snprintf(wifi_status_cache, sizeof(wifi_status_cache), "off");
+        return;
+    }
     char ssid[128];
     int ret = run_cmd("nmcli -t -f active,ssid dev wifi | grep '^yes'", ssid, sizeof(ssid));
+    if (ret == 0 && ssid[0]) {
+        char *s = strchr(ssid, ':');
+        snprintf(wifi_status_cache, sizeof(wifi_status_cache), "%s", s ? s + 1 : ssid);
+    } else {
+        snprintf(wifi_status_cache, sizeof(wifi_status_cache), "disconnected");
+    }
+    wifi_status_time = time(NULL);
+}
+
+static void wifi_refresh(MenuItem *module_root) {
+    /* Update cached status (used by both refresh and get_status) */
+    wifi_update_status_cache();
+
+    /* Update WiFi toggle state from cache */
+    MenuItem *toggle = module_root->children;
+    if (toggle && toggle->type == MENU_TOGGLE)
+        toggle->toggled = (strcmp(wifi_status_cache, "off") != 0);
+
+    /* Update connected network info from cache */
+    int is_connected = (wifi_status_cache[0] && strcmp(wifi_status_cache, "off") != 0
+                        && strcmp(wifi_status_cache, "disconnected") != 0);
     MenuItem *info = toggle ? toggle->next : NULL;
     if (info && info->type == MENU_INFO) {
-        if (ret == 0 && ssid[0]) {
-            char *s = strchr(ssid, ':');
-            snprintf(info->label, sizeof(info->label), "Connected: %s", s ? s + 1 : ssid);
-        } else {
+        if (is_connected)
+            snprintf(info->label, sizeof(info->label), "Connected: %s", wifi_status_cache);
+        else
             strncpy(info->label, "Not connected", sizeof(info->label));
-        }
     }
 
     /* Rebuild network list */
@@ -175,20 +197,11 @@ static MenuItem *wifi_build_menu(void) {
 }
 
 static void wifi_get_status(char *buf, size_t size) {
-    char radio[16];
-    run_cmd("nmcli radio wifi", radio, sizeof(radio));
-    if (strcmp(radio, "enabled") != 0) {
-        snprintf(buf, size, "off");
-        return;
-    }
-    char ssid[128];
-    int ret = run_cmd("nmcli -t -f active,ssid dev wifi | grep '^yes'", ssid, sizeof(ssid));
-    if (ret == 0 && ssid[0]) {
-        char *s = strchr(ssid, ':');
-        snprintf(buf, size, "%s", s ? s + 1 : ssid);
-    } else {
-        snprintf(buf, size, "disconnected");
-    }
+    time_t now = time(NULL);
+    /* Use cache if fresh (within same refresh cycle, ~1s) */
+    if (now - wifi_status_time > 1)
+        wifi_update_status_cache();
+    snprintf(buf, size, "%s", wifi_status_cache);
 }
 
 static void wifi_cleanup(void) {}
