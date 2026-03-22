@@ -47,14 +47,22 @@ static MenuItem *selected_item(MenuState *menu) {
 }
 
 void ui_loop(UIState *ui) {
-    wtimeout(ui->win, 5000); /* 5 second auto-refresh */
+    /* First render immediately, then fetch status indicators with a short timeout */
+    menu_render(&ui->menu, ui->win);
+    wtimeout(ui->win, 1); /* Tiny timeout to trigger immediate status fetch */
+    int first_refresh = 1;
     while (ui->running) {
-        menu_render(&ui->menu, ui->win);
+        if (!first_refresh)
+            menu_render(&ui->menu, ui->win);
         int ch = wgetch(ui->win);
         if (ch == ERR) {
             /* Timeout — auto-refresh */
             if (ui->refresh_all)
                 ui->refresh_all(&ui->menu);
+            if (first_refresh) {
+                first_refresh = 0;
+                wtimeout(ui->win, 5000); /* Normal 5s refresh after first */
+            }
             continue;
         }
         MenuItem *sel = selected_item(&ui->menu);
