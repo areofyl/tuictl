@@ -12,15 +12,6 @@ static int module_count = 0;
 static void register_module(BackendModule *mod, MenuItem *root) {
     MenuItem *subtree = mod->build_menu();
     if (subtree) {
-        if (mod->get_status) {
-            char status[64];
-            mod->get_status(status, sizeof(status));
-            if (status[0]) {
-                char label[128];
-                snprintf(label, sizeof(label), "%s [%s]", subtree->label, status);
-                strncpy(subtree->label, label, sizeof(subtree->label) - 1);
-            }
-        }
         menu_add_child(root, subtree);
         modules[module_count++] = mod;
     }
