@@ -7,6 +7,7 @@ typedef struct {
     const char *name;
     MenuItem *(*build_menu)(void);
     void (*refresh_fn)(MenuItem *module_root);
+    void (*get_status)(char *buf, size_t size); /* Short status for top-level label */
     void (*cleanup)(void);
 } BackendModule;
 
