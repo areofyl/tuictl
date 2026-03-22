@@ -46,6 +46,7 @@ typedef struct {
 MenuItem *menu_item_new(const char *label, const char *desc, MenuItemType type);
 void menu_add_child(MenuItem *parent, MenuItem *child);
 void menu_free(MenuItem *item);
+void menu_free_children(MenuItem *parent);
 
 /* Navigation */
 int menu_child_count(MenuItem *parent);
