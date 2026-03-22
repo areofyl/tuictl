@@ -50,6 +50,17 @@ static void bt_device_activate(MenuItem *self) {
     run_cmd_silent(cmd);
 }
 
+/* Check if a MAC is in a list of "Device MAC Name" lines */
+static int mac_in_list(const char *mac, char **lines, int count) {
+    for (int i = 0; i < count; i++) {
+        if (strncmp(lines[i], "Device ", 7) != 0) continue;
+        /* Compare MAC portion (17 chars) */
+        if (strncmp(lines[i] + 7, mac, 17) == 0)
+            return 1;
+    }
+    return 0;
+}
+
 static void rebuild_device_list(MenuItem *devices_cat) {
     MenuItem *child = devices_cat->children;
     while (child) {
@@ -61,11 +72,15 @@ static void rebuild_device_list(MenuItem *devices_cat) {
     }
     devices_cat->children = NULL;
 
+    /* 1 call: all devices */
     int count = 0;
     char **lines = run_cmd_lines("bluetoothctl devices 2>/dev/null", &count);
 
+    /* 1 call: only connected devices (instead of N calls to bluetoothctl info) */
+    int conn_count = 0;
+    char **conn_lines = run_cmd_lines("bluetoothctl devices Connected 2>/dev/null", &conn_count);
+
     for (int i = 0; i < count; i++) {
-        /* Format: Device XX:XX:XX:XX:XX:XX Name */
         char *line = lines[i];
         if (strncmp(line, "Device ", 7) != 0) continue;
 
@@ -75,11 +90,7 @@ static void rebuild_device_list(MenuItem *devices_cat) {
         *name = '\0';
         name++;
 
-        /* Check connection status */
-        char cmd[256], buf[512];
-        snprintf(cmd, sizeof(cmd), "bluetoothctl info %s 2>/dev/null", mac);
-        run_cmd(cmd, buf, sizeof(buf));
-        int connected = strstr(buf, "Connected: yes") != NULL;
+        int connected = mac_in_list(mac, conn_lines, conn_count);
 
         char label[128];
         snprintf(label, sizeof(label), "%s [%s]", name,
@@ -100,6 +111,7 @@ static void rebuild_device_list(MenuItem *devices_cat) {
             menu_item_new("No devices found", "Try scanning first", MENU_INFO));
     }
 
+    free_lines(conn_lines, conn_count);
     free_lines(lines, count);
 }
 
