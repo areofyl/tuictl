@@ -1,5 +1,15 @@
 #include <locale.h>
+#include <string.h>
 #include "ui.h"
+
+UIState *g_ui = NULL;
+
+void ui_notify(const char *msg) {
+    if (!g_ui) return;
+    strncpy(g_ui->notification, msg, sizeof(g_ui->notification) - 1);
+    g_ui->notification[sizeof(g_ui->notification) - 1] = '\0';
+    g_ui->notify_time = time(NULL);
+}
 
 void ui_init(UIState *ui, MenuItem *root) {
     setlocale(LC_ALL, "");
@@ -21,6 +31,9 @@ void ui_init(UIState *ui, MenuItem *root) {
 
     ui->win = stdscr;
     ui->running = 1;
+    ui->notification[0] = '\0';
+    ui->notify_time = 0;
+    g_ui = ui;
     ui->menu.root = root;
     ui->menu.current_menu = root;
     ui->menu.cursor = 0;
