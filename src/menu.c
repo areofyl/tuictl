@@ -59,9 +59,9 @@ static void sysinfo_refresh(void) {
     if (uname(&un) == 0)
         snprintf(sysinfo_cache.kernel, sizeof(sysinfo_cache.kernel), "%s %s", un.sysname, un.release);
 
-    /* WiFi */
+    /* WiFi: use connection show --active (nmcli dev wifi triggers a 3s+ scan) */
     char buf[128];
-    read_cmd("nmcli -t -f active,ssid dev wifi 2>/dev/null | grep '^yes'", buf, sizeof(buf));
+    read_cmd("nmcli -t -f type,name connection show --active 2>/dev/null | grep '^802-11-wireless:'", buf, sizeof(buf));
     sysinfo_cache.wifi[0] = '\0';
     char *s = strchr(buf, ':');
     if (s && *(s+1)) strncpy(sysinfo_cache.wifi, s + 1, sizeof(sysinfo_cache.wifi) - 1);
