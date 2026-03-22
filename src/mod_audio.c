@@ -195,10 +195,7 @@ static void audio_refresh(MenuItem *module_root) {
         rebuild_sinks_and_sources(sinks_cat, sources_cat);
 }
 
-static MenuItem *audio_build_menu(void) {
-    MenuItem *root = menu_item_new("Audio", "Audio output and input settings", MENU_CATEGORY);
-
-    /* Get sink volume+mute in 1 call (was 2) */
+static void audio_lazy_load(MenuItem *root) {
     int sink_vol, sink_muted;
     get_volume_and_mute("@DEFAULT_AUDIO_SINK@", &sink_vol, &sink_muted);
 
@@ -223,7 +220,6 @@ static MenuItem *audio_build_menu(void) {
     MenuItem *sinks = menu_item_new("Output Devices", "Select default audio output", MENU_CATEGORY);
     menu_add_child(root, sinks);
 
-    /* Get source volume+mute in 1 call (was 2) */
     int src_vol, src_muted;
     get_volume_and_mute("@DEFAULT_AUDIO_SOURCE@", &src_vol, &src_muted);
 
@@ -248,9 +244,12 @@ static MenuItem *audio_build_menu(void) {
     MenuItem *sources = menu_item_new("Input Devices", "Select default audio input", MENU_CATEGORY);
     menu_add_child(root, sources);
 
-    /* 1 call for both sinks and sources (was 2) */
     rebuild_sinks_and_sources(sinks, sources);
+}
 
+static MenuItem *audio_build_menu(void) {
+    MenuItem *root = menu_item_new("Audio", "Audio output and input settings", MENU_CATEGORY);
+    root->on_lazy_load = audio_lazy_load;
     return root;
 }
 
