@@ -34,14 +34,7 @@ static void wifi_connect_activate(MenuItem *self) {
 
 /* Clear and rebuild the network list under a category */
 static void rebuild_network_list(MenuItem *nets_cat) {
-    /* Free old children */
-    MenuItem *child = nets_cat->children;
-    while (child) {
-        MenuItem *next = child->next;
-        menu_free(child);
-        child = next;
-    }
-    nets_cat->children = NULL;
+    menu_free_children(nets_cat);
 
     int count = 0;
     char **lines = run_cmd_lines(
