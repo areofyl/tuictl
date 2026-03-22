@@ -93,22 +93,10 @@ static int parse_device_line(char *line, int *id_out, char *name_out,
     return 1;
 }
 
-static void free_menu_children(MenuItem *cat) {
-    MenuItem *child = cat->children;
-    while (child) {
-        MenuItem *next = child->next;
-        free(child->userdata);
-        child->userdata = NULL;
-        menu_free(child);
-        child = next;
-    }
-    cat->children = NULL;
-}
-
 /* Single wpctl status call, populates both sinks and sources categories */
 static void rebuild_sinks_and_sources(MenuItem *sinks_cat, MenuItem *sources_cat) {
-    free_menu_children(sinks_cat);
-    free_menu_children(sources_cat);
+    menu_free_children(sinks_cat);
+    menu_free_children(sources_cat);
 
     int count = 0;
     char **lines = run_cmd_lines("wpctl status 2>/dev/null", &count);
