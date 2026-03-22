@@ -30,6 +30,8 @@ typedef struct MenuItem {
     /* Callbacks */
     void (*on_activate)(struct MenuItem *self);
     void (*on_refresh)(struct MenuItem *self);
+    void (*on_lazy_load)(struct MenuItem *self); /* Called once on first enter */
+    int lazy_loaded;
     void *userdata;
 } MenuItem;
 
