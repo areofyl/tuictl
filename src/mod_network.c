@@ -3,12 +3,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "ui.h"
 
 static void airplane_activate(MenuItem *self) {
-    if (self->toggled)
+    if (self->toggled) {
         run_cmd_silent("rfkill block all 2>/dev/null");
-    else
+        ui_notify("Airplane mode on");
+    } else {
         run_cmd_silent("rfkill unblock all 2>/dev/null");
+        ui_notify("Airplane mode off");
+    }
 }
 
 static void rebuild_connections(MenuItem *cat) {
