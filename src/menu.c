@@ -289,12 +289,15 @@ void menu_render(MenuState *state, WINDOW *win) {
     char timebuf[16];
     strftime(timebuf, sizeof(timebuf), "%H:%M", tm);
 
-    /* Line 0: tuictl title + time right-aligned */
+    int pad = 3; /* gap between info items */
+
+    /* Row 0: blank (top breathing room) */
+
+    /* Row 1: tuictl + time/notification */
     wattron(win, A_BOLD | COLOR_PAIR(1));
-    mvwprintw(win, 0, margin, "tuictl");
+    mvwprintw(win, 1, margin, "tuictl");
     wattroff(win, A_BOLD | COLOR_PAIR(1));
 
-    /* Notification or time on the right */
     int has_notification = 0;
     if (g_ui && g_ui->notification[0]) {
         time_t now = time(NULL);
@@ -304,7 +307,7 @@ void menu_render(MenuState *state, WINDOW *win) {
             int nx = maxx - len - margin - 2;
             if (nx < margin + 10) nx = margin + 10;
             wattron(win, A_BOLD | COLOR_PAIR(4));
-            mvwprintw(win, 0, nx, " %s ", g_ui->notification);
+            mvwprintw(win, 1, nx, " %s ", g_ui->notification);
             wattroff(win, A_BOLD | COLOR_PAIR(4));
         } else {
             g_ui->notification[0] = '\0';
@@ -313,79 +316,81 @@ void menu_render(MenuState *state, WINDOW *win) {
     if (!has_notification) {
         int tx = maxx - margin - (int)strlen(timebuf);
         wattron(win, A_BOLD);
-        mvwprintw(win, 0, tx, "%s", timebuf);
+        mvwprintw(win, 1, tx, "%s", timebuf);
         wattroff(win, A_BOLD);
     }
 
-    /* Line 1: user@host  kernel  uptime */
+    /* Row 2: blank */
+
+    /* Row 3: user@host + kernel + uptime */
     wattron(win, COLOR_PAIR(1));
-    mvwprintw(win, 1, margin, "%s@%s", sysinfo_cache.user, sysinfo_cache.host);
+    mvwprintw(win, 3, margin, "%s@%s", sysinfo_cache.user, sysinfo_cache.host);
     wattroff(win, COLOR_PAIR(1));
 
     {
         char right[128];
-        snprintf(right, sizeof(right), "%s  up %s",
+        snprintf(right, sizeof(right), "%s   up %s",
                  sysinfo_cache.kernel, sysinfo_cache.uptime);
         int rx = maxx - margin - (int)strlen(right);
         if (rx > margin + 20) {
             wattron(win, A_DIM);
-            mvwprintw(win, 1, rx, "%s", right);
+            mvwprintw(win, 3, rx, "%s", right);
             wattroff(win, A_DIM);
         }
     }
 
-    /* Line 2: connectivity + devices */
+    /* Row 5: wifi + ip + bluetooth */
     int col = margin;
     if (sysinfo_cache.wifi[0]) {
         wattron(win, COLOR_PAIR(1));
-        mvwprintw(win, 2, col, "wifi %s", sysinfo_cache.wifi);
+        mvwprintw(win, 5, col, "wifi  %s", sysinfo_cache.wifi);
         wattroff(win, COLOR_PAIR(1));
-        col += strlen(sysinfo_cache.wifi) + 7;
+        col += strlen(sysinfo_cache.wifi) + 6 + pad;
     }
     if (sysinfo_cache.ip[0]) {
         wattron(win, A_DIM);
-        mvwprintw(win, 2, col, "(%s)", sysinfo_cache.ip);
+        mvwprintw(win, 5, col, "(%s)", sysinfo_cache.ip);
         wattroff(win, A_DIM);
-        col += strlen(sysinfo_cache.ip) + 5;
+        col += strlen(sysinfo_cache.ip) + 2 + pad;
     }
     if (sysinfo_cache.bt[0]) {
-        mvwprintw(win, 2, col, "bluetooth %s", sysinfo_cache.bt);
-        col += strlen(sysinfo_cache.bt) + 13;
+        mvwprintw(win, 5, col, "bluetooth  %s", sysinfo_cache.bt);
     }
 
-    /* Line 3: volume, battery, memory, load */
+    /* Row 6: volume + battery + memory + load */
     col = margin;
     if (sysinfo_cache.vol[0]) {
-        mvwprintw(win, 3, col, "volume %s", sysinfo_cache.vol);
-        col += strlen(sysinfo_cache.vol) + 10;
+        mvwprintw(win, 6, col, "volume  %s", sysinfo_cache.vol);
+        col += strlen(sysinfo_cache.vol) + 8 + pad;
     }
     if (sysinfo_cache.bat[0]) {
-        mvwprintw(win, 3, col, "battery %s", sysinfo_cache.bat);
-        col += strlen(sysinfo_cache.bat) + 11;
+        mvwprintw(win, 6, col, "battery  %s", sysinfo_cache.bat);
+        col += strlen(sysinfo_cache.bat) + 9 + pad;
     }
     if (sysinfo_cache.mem[0]) {
-        mvwprintw(win, 3, col, "mem %s", sysinfo_cache.mem);
-        col += strlen(sysinfo_cache.mem) + 7;
+        mvwprintw(win, 6, col, "memory  %s", sysinfo_cache.mem);
+        col += strlen(sysinfo_cache.mem) + 8 + pad;
     }
     if (sysinfo_cache.load[0]) {
         wattron(win, A_DIM);
-        mvwprintw(win, 3, col, "load %s", sysinfo_cache.load);
+        mvwprintw(win, 6, col, "load  %s", sysinfo_cache.load);
         wattroff(win, A_DIM);
     }
 
-    mvwhline(win, 4, 0, ACS_HLINE, maxx);
+    /* Row 8: separator */
+    mvwhline(win, 8, margin, ACS_HLINE, maxx - margin * 2);
 
-    /* Breadcrumb — only show when not at root */
-    int menu_start = 5;
+    /* Breadcrumb — only show when inside a module */
+    int menu_start = 9;
     char breadcrumb[512];
     build_breadcrumb(state->current_menu, breadcrumb, sizeof(breadcrumb));
     if (state->current_menu->parent) {
         wattron(win, A_BOLD | COLOR_PAIR(3));
-        mvwprintw(win, 5, margin, "%s", breadcrumb);
+        mvwprintw(win, 9, margin, "%s", breadcrumb);
         wattroff(win, A_BOLD | COLOR_PAIR(3));
-        menu_start = 6;
+        menu_start = 11;
     }
-    int menu_height = maxy - menu_start - 2;
+    int menu_height = maxy - menu_start - 4;
     int count = menu_child_count(state->current_menu);
 
     /* Adjust scroll offset */
@@ -447,21 +452,22 @@ void menu_render(MenuState *state, WINDOW *win) {
     }
 
     /* Status bar */
-    int status_y = maxy - 2;
-    mvwhline(win, status_y, 0, ACS_HLINE, maxx);
+    int status_y = maxy - 3;
+    mvwhline(win, status_y, margin, ACS_HLINE, maxx - margin * 2);
 
     /* Description of selected item */
     MenuItem *sel = menu_child_at(state->current_menu, state->cursor);
     if (sel && sel->description[0]) {
         wattron(win, COLOR_PAIR(3));
-        mvwprintw(win, maxy - 1, margin, "%s", sel->description);
+        mvwprintw(win, status_y + 1, margin, "%s", sel->description);
         wattroff(win, COLOR_PAIR(3));
-    } else {
-        wattron(win, A_DIM);
-        mvwprintw(win, maxy - 1, margin,
-                  "ENTER select  SPACE toggle  h/l navigate  r refresh  q quit");
-        wattroff(win, A_DIM);
     }
+
+    /* Key hints */
+    wattron(win, A_DIM);
+    mvwprintw(win, maxy - 1, margin,
+              "ENTER select   SPACE toggle   h/l navigate   r refresh   q quit");
+    wattroff(win, A_DIM);
 
     wrefresh(win);
 }
