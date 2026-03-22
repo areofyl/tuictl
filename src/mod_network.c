@@ -12,13 +12,7 @@ static void airplane_activate(MenuItem *self) {
 }
 
 static void rebuild_connections(MenuItem *cat) {
-    MenuItem *child = cat->children;
-    while (child) {
-        MenuItem *next = child->next;
-        menu_free(child);
-        child = next;
-    }
-    cat->children = NULL;
+    menu_free_children(cat);
 
     int count = 0;
     char **lines = run_cmd_lines(
