@@ -28,10 +28,16 @@ void ui_init(UIState *ui, MenuItem *root) {
     ui->refresh_all = NULL;
 }
 
+/* Get the currently selected item, or NULL */
+static MenuItem *selected_item(MenuState *menu) {
+    return menu_child_at(menu->current_menu, menu->cursor);
+}
+
 void ui_loop(UIState *ui) {
     while (ui->running) {
         menu_render(&ui->menu, ui->win);
         int ch = wgetch(ui->win);
+        MenuItem *sel = selected_item(&ui->menu);
 
         switch (ch) {
         case 'k':
@@ -44,6 +50,12 @@ void ui_loop(UIState *ui) {
             break;
         case 'l':
         case KEY_RIGHT:
+            /* If item has on_right (slider), use that instead of activate */
+            if (sel && sel->on_right)
+                sel->on_right(sel);
+            else
+                menu_activate(&ui->menu);
+            break;
         case '\n':
         case KEY_ENTER:
             menu_activate(&ui->menu);
@@ -53,10 +65,16 @@ void ui_loop(UIState *ui) {
             break;
         case 'h':
         case KEY_LEFT:
+            /* If item has on_left (slider), use that instead of go back */
+            if (sel && sel->on_left)
+                sel->on_left(sel);
+            else if (ui->menu.current_menu->parent)
+                menu_go_back(&ui->menu);
+            break;
         case 27: /* ESC */
             if (ui->menu.current_menu->parent)
                 menu_go_back(&ui->menu);
-            else if (ch == 27)
+            else
                 ui->running = 0;
             break;
         case 'q':
