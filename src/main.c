@@ -17,6 +17,8 @@ static void register_module(BackendModule *mod, MenuItem *root) {
     }
 }
 
+static int first_refresh = 1;
+
 void refresh_all(MenuState *state) {
     /* Walk up from current_menu to find which top-level module we're in */
     MenuItem *active = state->current_menu;
@@ -26,7 +28,9 @@ void refresh_all(MenuState *state) {
     MenuItem *child = state->root->children;
     int i = 0;
     while (child && i < module_count) {
-        if (child == active || active == state->root) {
+        /* Skip refresh_fn on first call — menus aren't lazy-loaded yet,
+           so refreshing empty children just wastes popen calls */
+        if (!first_refresh && (child == active || active == state->root)) {
             if (modules[i]->refresh_fn)
                 modules[i]->refresh_fn(child);
         }
@@ -44,6 +48,7 @@ void refresh_all(MenuState *state) {
         child = child->next;
         i++;
     }
+    first_refresh = 0;
 }
 
 int main(void) {
