@@ -243,10 +243,22 @@ static MenuItem *audio_build_menu(void) {
 
 static void audio_cleanup(void) {}
 
+static void audio_get_status(char *buf, size_t size) {
+    int vol, muted;
+    get_volume_and_mute("@DEFAULT_AUDIO_SINK@", &vol, &muted);
+    if (muted)
+        snprintf(buf, size, "muted");
+    else if (vol >= 0)
+        snprintf(buf, size, "%d%%", vol);
+    else
+        snprintf(buf, size, "?");
+}
+
 static BackendModule audio_module = {
     .name = "audio",
     .build_menu = audio_build_menu,
     .refresh_fn = audio_refresh,
+    .get_status = audio_get_status,
     .cleanup = audio_cleanup,
 };
 
