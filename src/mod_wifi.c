@@ -124,11 +124,12 @@ static void wifi_update_status_cache(void) {
         snprintf(wifi_status_cache, sizeof(wifi_status_cache), "off");
         return;
     }
-    char ssid[128];
-    int ret = run_cmd("nmcli -t -f active,ssid dev wifi | grep '^yes'", ssid, sizeof(ssid));
-    if (ret == 0 && ssid[0]) {
-        char *s = strchr(ssid, ':');
-        snprintf(wifi_status_cache, sizeof(wifi_status_cache), "%s", s ? s + 1 : ssid);
+    /* Use connection show --active instead of dev wifi (avoids 3s+ wifi scan) */
+    char conn[128];
+    int ret = run_cmd("nmcli -t -f type,name connection show --active 2>/dev/null | grep '^802-11-wireless:'", conn, sizeof(conn));
+    if (ret == 0 && conn[0]) {
+        char *name = strchr(conn, ':');
+        snprintf(wifi_status_cache, sizeof(wifi_status_cache), "%s", name ? name + 1 : conn);
     } else {
         snprintf(wifi_status_cache, sizeof(wifi_status_cache), "disconnected");
     }
@@ -173,11 +174,11 @@ static void wifi_lazy_load(MenuItem *root) {
     menu_add_child(root, toggle);
 
     MenuItem *conn_info = menu_item_new("Not connected", NULL, MENU_INFO);
-    char ssid[128];
-    int ret = run_cmd("nmcli -t -f active,ssid dev wifi | grep '^yes'", ssid, sizeof(ssid));
-    if (ret == 0 && ssid[0]) {
-        char *s = strchr(ssid, ':');
-        snprintf(conn_info->label, sizeof(conn_info->label), "Connected: %s", s ? s + 1 : ssid);
+    char conn[128];
+    int ret = run_cmd("nmcli -t -f type,name connection show --active 2>/dev/null | grep '^802-11-wireless:'", conn, sizeof(conn));
+    if (ret == 0 && conn[0]) {
+        char *name = strchr(conn, ':');
+        snprintf(conn_info->label, sizeof(conn_info->label), "Connected: %s", name ? name + 1 : conn);
     }
     menu_add_child(root, conn_info);
 
