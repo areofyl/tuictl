@@ -22,5 +22,7 @@ BackendModule *mod_wifi_init(void);
 BackendModule *mod_bluetooth_init(void);
 BackendModule *mod_audio_init(void);
 BackendModule *mod_network_init(void);
+BackendModule *mod_power_init(void);
+BackendModule *mod_storage_init(void);
 
 #endif
