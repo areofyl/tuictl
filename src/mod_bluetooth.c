@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "ui.h"
 
 static void bt_power_activate(MenuItem *self) {
     if (self->toggled)
@@ -12,10 +13,13 @@ static void bt_power_activate(MenuItem *self) {
 }
 
 static void bt_rfkill_activate(MenuItem *self) {
-    if (self->toggled)
+    if (self->toggled) {
         run_cmd_silent("rfkill unblock bluetooth 2>/dev/null");
-    else
+        ui_notify("Bluetooth enabled");
+    } else {
         run_cmd_silent("rfkill block bluetooth 2>/dev/null");
+        ui_notify("Bluetooth disabled");
+    }
 }
 
 static void bt_discoverable_activate(MenuItem *self) {
