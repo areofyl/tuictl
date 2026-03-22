@@ -96,3 +96,73 @@ void ui_cleanup(UIState *ui) {
     (void)ui;
     endwin();
 }
+
+int ui_input_popup(const char *title, const char *prompt, char *buf, size_t size, int password) {
+    int maxy, maxx;
+    getmaxyx(stdscr, maxy, maxx);
+
+    int width = 50;
+    int height = 7;
+    if (width > maxx - 4) width = maxx - 4;
+    int starty = (maxy - height) / 2;
+    int startx = (maxx - width) / 2;
+
+    WINDOW *popup = newwin(height, width, starty, startx);
+    keypad(popup, TRUE);
+    box(popup, 0, 0);
+
+    /* Title */
+    wattron(popup, A_BOLD | COLOR_PAIR(1));
+    mvwprintw(popup, 0, 2, " %s ", title);
+    wattroff(popup, A_BOLD | COLOR_PAIR(1));
+
+    /* Prompt */
+    mvwprintw(popup, 2, 2, "%s", prompt);
+
+    /* Input field */
+    int field_y = 4;
+    int field_x = 2;
+    int field_w = width - 4;
+    mvwhline(popup, field_y, field_x, '_', field_w);
+    wmove(popup, field_y, field_x);
+    wrefresh(popup);
+
+    buf[0] = '\0';
+    int pos = 0;
+    int confirmed = 0;
+
+    while (1) {
+        int ch = wgetch(popup);
+
+        if (ch == '\n' || ch == KEY_ENTER) {
+            confirmed = 1;
+            break;
+        } else if (ch == 27) { /* ESC */
+            confirmed = 0;
+            break;
+        } else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
+            if (pos > 0) {
+                pos--;
+                buf[pos] = '\0';
+            }
+        } else if (pos < (int)size - 1 && ch >= 32 && ch < 127) {
+            buf[pos++] = ch;
+            buf[pos] = '\0';
+        } else {
+            continue;
+        }
+
+        /* Redraw input field */
+        mvwhline(popup, field_y, field_x, '_', field_w);
+        for (int i = 0; i < pos && i < field_w; i++) {
+            mvwaddch(popup, field_y, field_x + i, password ? '*' : buf[i]);
+        }
+        wmove(popup, field_y, field_x + (pos < field_w ? pos : field_w - 1));
+        wrefresh(popup);
+    }
+
+    delwin(popup);
+    touchwin(stdscr);
+    refresh();
+    return confirmed;
+}
