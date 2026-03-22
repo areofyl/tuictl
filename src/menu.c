@@ -399,42 +399,67 @@ void menu_render(MenuState *state, WINDOW *win) {
     if (state->cursor < state->scroll_offset)
         state->scroll_offset = state->cursor;
 
-    for (int i = 0; i < menu_height && (i + state->scroll_offset) < count; i++) {
+    /* Line number gutter width */
+    int num_w = 2;
+    if (count >= 10) num_w = 3;
+    if (count >= 100) num_w = 4;
+    int item_x = margin + num_w + 1;
+
+    for (int i = 0; i < menu_height; i++) {
         int idx = i + state->scroll_offset;
-        MenuItem *item = menu_child_at(state->current_menu, idx);
-        if (!item) break;
-
         int y = menu_start + i;
-        int is_selected = (idx == state->cursor);
 
-        if (is_selected) {
-            wattron(win, A_REVERSE | COLOR_PAIR(2));
-            mvwhline(win, y, 0, ' ', maxx);
+        if (idx < count) {
+            MenuItem *item = menu_child_at(state->current_menu, idx);
+            if (!item) break;
+
+            int is_selected = (idx == state->cursor);
+
+            /* Line number */
+            if (is_selected) {
+                wattron(win, A_BOLD | COLOR_PAIR(1));
+                mvwprintw(win, y, margin, "%*d", num_w, idx + 1);
+                wattroff(win, A_BOLD | COLOR_PAIR(1));
+            } else {
+                wattron(win, A_DIM);
+                mvwprintw(win, y, margin, "%*d", num_w, idx + 1);
+                wattroff(win, A_DIM);
+            }
+
+            if (is_selected) {
+                wattron(win, A_REVERSE | COLOR_PAIR(2));
+                mvwhline(win, y, item_x - 1, ' ', maxx - item_x + 1);
+            }
+
+            /* Build prefix + label */
+            char prefix[16] = "   ";
+            char suffix[8] = "";
+            switch (item->type) {
+            case MENU_TOGGLE:
+                snprintf(prefix, sizeof(prefix), "%s ", item->toggled ? "[+]" : "[ ]");
+                break;
+            case MENU_CATEGORY:
+                snprintf(suffix, sizeof(suffix), "  >");
+                break;
+            case MENU_ACTION:
+            case MENU_SELECT:
+            case MENU_INFO:
+                break;
+            }
+
+            if (is_selected)
+                mvwprintw(win, y, item_x, "> %s%s%s", prefix, item->label, suffix);
+            else
+                mvwprintw(win, y, item_x, "  %s%s%s", prefix, item->label, suffix);
+
+            if (is_selected)
+                wattroff(win, A_REVERSE | COLOR_PAIR(2));
+        } else {
+            /* Empty lines: vim-style ~ */
+            wattron(win, COLOR_PAIR(1));
+            mvwprintw(win, y, margin, "~");
+            wattroff(win, COLOR_PAIR(1));
         }
-
-        /* Build prefix + label */
-        char prefix[16] = "   ";
-        char suffix[8] = "";
-        switch (item->type) {
-        case MENU_TOGGLE:
-            snprintf(prefix, sizeof(prefix), "%s ", item->toggled ? "[+]" : "[ ]");
-            break;
-        case MENU_CATEGORY:
-            snprintf(suffix, sizeof(suffix), "  >");
-            break;
-        case MENU_ACTION:
-        case MENU_SELECT:
-        case MENU_INFO:
-            break;
-        }
-
-        if (is_selected)
-            mvwprintw(win, y, margin, " > %s%s%s", prefix, item->label, suffix);
-        else
-            mvwprintw(win, y, margin, "   %s%s%s", prefix, item->label, suffix);
-
-        if (is_selected)
-            wattroff(win, A_REVERSE | COLOR_PAIR(2));
     }
 
     /* Scroll indicator */
@@ -451,23 +476,36 @@ void menu_render(MenuState *state, WINDOW *win) {
         }
     }
 
-    /* Status bar */
+    /* Statusline (vim-style) */
     int status_y = maxy - 3;
-    mvwhline(win, status_y, margin, ACS_HLINE, maxx - margin * 2);
 
     /* Description of selected item */
     MenuItem *sel = menu_child_at(state->current_menu, state->cursor);
     if (sel && sel->description[0]) {
         wattron(win, COLOR_PAIR(3));
-        mvwprintw(win, status_y + 1, margin, "%s", sel->description);
+        mvwprintw(win, status_y, margin, "%s", sel->description);
         wattroff(win, COLOR_PAIR(3));
     }
 
-    /* Key hints */
-    wattron(win, A_DIM);
-    mvwprintw(win, maxy - 1, margin,
-              "ENTER select   SPACE toggle   h/l navigate   r refresh   q quit");
-    wattroff(win, A_DIM);
+    /* Position indicator right-aligned: cursor/total */
+    {
+        char pos[16];
+        snprintf(pos, sizeof(pos), "%d/%d", state->cursor + 1, count);
+        int px = maxx - margin - (int)strlen(pos);
+        wattron(win, A_DIM);
+        mvwprintw(win, status_y, px, "%s", pos);
+        wattroff(win, A_DIM);
+    }
+
+    /* Mode indicator (vim-style) */
+    const char *mode_str = "-- NORMAL --";
+    if (g_ui) {
+        if (g_ui->mode == MODE_COMMAND) mode_str = "-- COMMAND --";
+        else if (g_ui->mode == MODE_SEARCH) mode_str = "-- SEARCH --";
+    }
+    wattron(win, A_BOLD);
+    mvwprintw(win, maxy - 2, margin, "%s", mode_str);
+    wattroff(win, A_BOLD);
 
     wrefresh(win);
 }
