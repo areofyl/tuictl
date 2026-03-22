@@ -48,37 +48,48 @@ static void rebuild_connections(MenuItem *cat) {
     free_lines(lines, count);
 }
 
-static void update_info_label(MenuItem *item, const char *cmd, const char *prefix) {
-    char buf[256];
-    int ret = run_cmd(cmd, buf, sizeof(buf));
-    if (ret == 0 && buf[0])
-        snprintf(item->label, sizeof(item->label), "%s: %s", prefix, buf);
-    else
-        snprintf(item->label, sizeof(item->label), "%s: N/A", prefix);
+/* Get IP and DNS from a single nmcli call instead of 2 nested subshell pipelines */
+static void get_ip_and_dns(char *ip_out, size_t ip_size, char *dns_out, size_t dns_size) {
+    ip_out[0] = '\0';
+    dns_out[0] = '\0';
+
+    int count = 0;
+    char **lines = run_cmd_lines(
+        "nmcli -t -f IP4.ADDRESS,IP4.DNS device show 2>/dev/null", &count);
+
+    for (int i = 0; i < count; i++) {
+        if (!ip_out[0] && strncmp(lines[i], "IP4.ADDRESS", 11) == 0) {
+            char *val = strchr(lines[i], ':');
+            if (val && *(val + 1))
+                strncpy(ip_out, val + 1, ip_size - 1);
+        } else if (!dns_out[0] && strncmp(lines[i], "IP4.DNS", 7) == 0) {
+            char *val = strchr(lines[i], ':');
+            if (val && *(val + 1))
+                strncpy(dns_out, val + 1, dns_size - 1);
+        }
+        if (ip_out[0] && dns_out[0]) break;
+    }
+
+    free_lines(lines, count);
 }
 
 static void network_refresh(MenuItem *module_root) {
+    /* 1 call for both IP and DNS (was 2 heavy nested pipelines) */
+    char ip[128], dns[128];
+    get_ip_and_dns(ip, sizeof(ip), dns, sizeof(dns));
+
     MenuItem *child = module_root->children;
     while (child) {
-        if (child->type == MENU_INFO && strstr(child->label, "Hostname"))
-            update_info_label(child, "hostname", "Hostname");
-        else if (child->type == MENU_INFO && strstr(child->label, "IP")) {
-            /* Get primary IP */
-            char buf[256];
-            run_cmd("nmcli -t -f IP4.ADDRESS device show $(nmcli -t -f DEVICE,STATE device | grep ':connected$' | head -1 | cut -d: -f1) 2>/dev/null | head -1 | cut -d: -f2", buf, sizeof(buf));
+        if (child->type == MENU_INFO && strstr(child->label, "Hostname")) {
+            char buf[128];
+            run_cmd("hostname", buf, sizeof(buf));
             if (buf[0])
-                snprintf(child->label, sizeof(child->label), "IP: %s", buf);
-            else
-                snprintf(child->label, sizeof(child->label), "IP: N/A");
+                snprintf(child->label, sizeof(child->label), "Hostname: %s", buf);
+        } else if (child->type == MENU_INFO && strstr(child->label, "IP")) {
+            snprintf(child->label, sizeof(child->label), "IP: %s", ip[0] ? ip : "N/A");
         } else if (child->type == MENU_INFO && strstr(child->label, "DNS")) {
-            char buf[256];
-            run_cmd("nmcli -t -f IP4.DNS device show $(nmcli -t -f DEVICE,STATE device | grep ':connected$' | head -1 | cut -d: -f1) 2>/dev/null | head -1 | cut -d: -f2", buf, sizeof(buf));
-            if (buf[0])
-                snprintf(child->label, sizeof(child->label), "DNS: %s", buf);
-            else
-                snprintf(child->label, sizeof(child->label), "DNS: N/A");
+            snprintf(child->label, sizeof(child->label), "DNS: %s", dns[0] ? dns : "N/A");
         } else if (child->type == MENU_TOGGLE && strstr(child->label, "Airplane")) {
-            /* Check if everything is blocked */
             char buf[256];
             run_cmd("rfkill list -o SOFT -n 2>/dev/null", buf, sizeof(buf));
             child->toggled = (strstr(buf, "unblocked") == NULL && buf[0] != '\0');
@@ -92,31 +103,30 @@ static void network_refresh(MenuItem *module_root) {
 static MenuItem *net_build_menu(void) {
     MenuItem *root = menu_item_new("Network", "General network information", MENU_CATEGORY);
 
-    /* Hostname */
+    /* Hostname: 1 call */
     MenuItem *host = menu_item_new("Hostname: ?", NULL, MENU_INFO);
-    update_info_label(host, "hostname", "Hostname");
+    char hbuf[128];
+    run_cmd("hostname", hbuf, sizeof(hbuf));
+    if (hbuf[0])
+        snprintf(host->label, sizeof(host->label), "Hostname: %s", hbuf);
     menu_add_child(root, host);
 
-    /* IP address */
-    MenuItem *ip = menu_item_new("IP: ?", NULL, MENU_INFO);
-    char buf[256];
-    run_cmd("nmcli -t -f IP4.ADDRESS device show $(nmcli -t -f DEVICE,STATE device | grep ':connected$' | head -1 | cut -d: -f1) 2>/dev/null | head -1 | cut -d: -f2", buf, sizeof(buf));
-    if (buf[0])
-        snprintf(ip->label, sizeof(ip->label), "IP: %s", buf);
-    else
-        snprintf(ip->label, sizeof(ip->label), "IP: N/A");
+    /* IP + DNS: 1 call (was 2 nested subshell pipelines) */
+    char ip_str[128], dns_str[128];
+    get_ip_and_dns(ip_str, sizeof(ip_str), dns_str, sizeof(dns_str));
+
+    MenuItem *ip = menu_item_new("IP: N/A", NULL, MENU_INFO);
+    if (ip_str[0])
+        snprintf(ip->label, sizeof(ip->label), "IP: %s", ip_str);
     menu_add_child(root, ip);
 
-    /* DNS */
-    MenuItem *dns = menu_item_new("DNS: ?", NULL, MENU_INFO);
-    run_cmd("nmcli -t -f IP4.DNS device show $(nmcli -t -f DEVICE,STATE device | grep ':connected$' | head -1 | cut -d: -f1) 2>/dev/null | head -1 | cut -d: -f2", buf, sizeof(buf));
-    if (buf[0])
-        snprintf(dns->label, sizeof(dns->label), "DNS: %s", buf);
-    else
-        snprintf(dns->label, sizeof(dns->label), "DNS: N/A");
+    MenuItem *dns = menu_item_new("DNS: N/A", NULL, MENU_INFO);
+    if (dns_str[0])
+        snprintf(dns->label, sizeof(dns->label), "DNS: %s", dns_str);
     menu_add_child(root, dns);
 
     /* Airplane mode */
+    char buf[256];
     MenuItem *airplane = menu_item_new("Airplane Mode", "Block all wireless radios", MENU_TOGGLE);
     airplane->on_activate = airplane_activate;
     run_cmd("rfkill list -o SOFT -n 2>/dev/null", buf, sizeof(buf));
