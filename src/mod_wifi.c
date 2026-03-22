@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "backend.h"
+#include "ui.h"
 
 static void wifi_toggle_activate(MenuItem *self) {
     if (self->toggled)
@@ -20,6 +21,7 @@ static void wifi_connect_activate(MenuItem *self) {
     /* Extract SSID from label (format: "SSID (XX%)") */
     char ssid[128];
     strncpy(ssid, self->label, sizeof(ssid) - 1);
+    ssid[sizeof(ssid) - 1] = '\0';
     char *paren = strrchr(ssid, '(');
     if (paren && paren > ssid) {
         paren--;
@@ -27,9 +29,23 @@ static void wifi_connect_activate(MenuItem *self) {
         *(paren + 1) = '\0';
     }
 
-    char cmd[256];
+    /* Try connecting without password first */
+    char cmd[512], result[256];
     snprintf(cmd, sizeof(cmd), "nmcli device wifi connect \"%s\" 2>&1", ssid);
-    run_cmd_silent(cmd);
+    run_cmd(cmd, result, sizeof(result));
+
+    /* If it needs a password, prompt */
+    if (strstr(result, "Secrets were required") || strstr(result, "No suitable") ||
+        strstr(result, "Error")) {
+        char pass[128];
+        char title[64];
+        snprintf(title, sizeof(title), "Connect to %s", ssid);
+        if (ui_input_popup(title, "Password:", pass, sizeof(pass), 1)) {
+            snprintf(cmd, sizeof(cmd),
+                     "nmcli device wifi connect \"%s\" password \"%s\" 2>&1", ssid, pass);
+            run_cmd_silent(cmd);
+        }
+    }
 }
 
 /* Clear and rebuild the network list under a category */
