@@ -133,12 +133,22 @@ static MenuItem *net_build_menu(void) {
     return root;
 }
 
+static void net_get_status(char *buf, size_t size) {
+    char ip[128], dns[128];
+    get_ip_and_dns(ip, sizeof(ip), dns, sizeof(dns));
+    if (ip[0])
+        snprintf(buf, size, "%s", ip);
+    else
+        snprintf(buf, size, "no connection");
+}
+
 static void net_cleanup(void) {}
 
 static BackendModule net_module = {
     .name = "network",
     .build_menu = net_build_menu,
     .refresh_fn = network_refresh,
+    .get_status = net_get_status,
     .cleanup = net_cleanup,
 };
 
