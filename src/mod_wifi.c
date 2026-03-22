@@ -146,12 +146,30 @@ static MenuItem *wifi_build_menu(void) {
     return root;
 }
 
+static void wifi_get_status(char *buf, size_t size) {
+    char radio[16];
+    run_cmd("nmcli radio wifi", radio, sizeof(radio));
+    if (strcmp(radio, "enabled") != 0) {
+        snprintf(buf, size, "off");
+        return;
+    }
+    char ssid[128];
+    int ret = run_cmd("nmcli -t -f active,ssid dev wifi | grep '^yes'", ssid, sizeof(ssid));
+    if (ret == 0 && ssid[0]) {
+        char *s = strchr(ssid, ':');
+        snprintf(buf, size, "%s", s ? s + 1 : ssid);
+    } else {
+        snprintf(buf, size, "disconnected");
+    }
+}
+
 static void wifi_cleanup(void) {}
 
 static BackendModule wifi_module = {
     .name = "wifi",
     .build_menu = wifi_build_menu,
     .refresh_fn = wifi_refresh,
+    .get_status = wifi_get_status,
     .cleanup = wifi_cleanup,
 };
 
