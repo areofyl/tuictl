@@ -17,11 +17,19 @@ static void register_module(BackendModule *mod, MenuItem *root) {
 }
 
 void refresh_all(MenuState *state) {
+    /* Walk up from current_menu to find which top-level module we're in */
+    MenuItem *active = state->current_menu;
+    while (active->parent && active->parent != state->root)
+        active = active->parent;
+
+    /* If we're at root, refresh all. Otherwise only the active module. */
     MenuItem *child = state->root->children;
     int i = 0;
     while (child && i < module_count) {
-        if (modules[i]->refresh_fn)
-            modules[i]->refresh_fn(child);
+        if (child == active || active == state->root) {
+            if (modules[i]->refresh_fn)
+                modules[i]->refresh_fn(child);
+        }
         child = child->next;
         i++;
     }
