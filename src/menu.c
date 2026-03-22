@@ -167,63 +167,56 @@ void menu_render(MenuState *state, WINDOW *win) {
 
     werase(win);
 
-    /* Side margins: scale with terminal width */
-    int margin = maxx / 8;
+    /* Moderate side margins */
+    int margin = maxx / 12;
     if (margin < 2) margin = 2;
-    if (margin > 20) margin = 20;
-    int content_w = maxx - margin * 2;
+    if (margin > 12) margin = 12;
 
-    /* Header: title bar */
+    /* Header */
     wattron(win, A_BOLD | COLOR_PAIR(1));
     mvwhline(win, 0, 0, ACS_HLINE, maxx);
     mvwprintw(win, 0, margin, " tuictl ");
     wattroff(win, A_BOLD | COLOR_PAIR(1));
 
-    /* Breadcrumb on line 2 */
+    /* Breadcrumb */
     char breadcrumb[512];
     build_breadcrumb(state->current_menu, breadcrumb, sizeof(breadcrumb));
     wattron(win, A_BOLD | COLOR_PAIR(3));
-    mvwprintw(win, 2, margin, "%s", breadcrumb);
+    mvwprintw(win, 1, margin, "%s", breadcrumb);
     wattroff(win, A_BOLD | COLOR_PAIR(3));
 
-    mvwhline(win, 3, 0, ACS_HLINE, maxx);
+    mvwhline(win, 2, 0, ACS_HLINE, maxx);
 
-    /* Item spacing: 2 lines per item when there's room, 1 when tight */
-    int menu_start = 5;
-    int status_height = 3;
-    int available = maxy - menu_start - status_height;
+    /* Menu area: 1 line per item, always */
+    int menu_start = 3;
+    int menu_height = maxy - menu_start - 2;
     int count = menu_child_count(state->current_menu);
-    int item_height = (available >= count * 2) ? 2 : 1;
-    int visible = available / item_height;
-    if (visible < 1) visible = 1;
 
     /* Adjust scroll offset */
-    if (state->cursor >= state->scroll_offset + visible)
-        state->scroll_offset = state->cursor - visible + 1;
+    if (state->cursor >= state->scroll_offset + menu_height)
+        state->scroll_offset = state->cursor - menu_height + 1;
     if (state->cursor < state->scroll_offset)
         state->scroll_offset = state->cursor;
 
-    for (int i = 0; i < visible && (i + state->scroll_offset) < count; i++) {
+    for (int i = 0; i < menu_height && (i + state->scroll_offset) < count; i++) {
         int idx = i + state->scroll_offset;
         MenuItem *item = menu_child_at(state->current_menu, idx);
         if (!item) break;
 
-        int y = menu_start + i * item_height;
+        int y = menu_start + i;
         int is_selected = (idx == state->cursor);
 
-        /* Highlight: fill all lines this item occupies */
         if (is_selected) {
             wattron(win, A_REVERSE | COLOR_PAIR(2));
-            for (int row = 0; row < item_height; row++)
-                mvwhline(win, y + row, 0, ' ', maxx);
+            mvwhline(win, y, 0, ' ', maxx);
         }
 
         /* Build prefix + label */
-        char prefix[16] = "    ";
+        char prefix[16] = "   ";
         char suffix[8] = "";
         switch (item->type) {
         case MENU_TOGGLE:
-            snprintf(prefix, sizeof(prefix), " %s ", item->toggled ? "[+]" : "[ ]");
+            snprintf(prefix, sizeof(prefix), "%s ", item->toggled ? "[+]" : "[ ]");
             break;
         case MENU_CATEGORY:
             snprintf(suffix, sizeof(suffix), "  >");
@@ -235,32 +228,21 @@ void menu_render(MenuState *state, WINDOW *win) {
         }
 
         if (is_selected)
-            mvwprintw(win, y, margin, "  > %s%s%s", prefix, item->label, suffix);
+            mvwprintw(win, y, margin, " > %s%s%s", prefix, item->label, suffix);
         else
-            mvwprintw(win, y, margin, "    %s%s%s", prefix, item->label, suffix);
-
-        /* Description on second line if we have space */
-        if (item_height >= 2 && item->description[0]) {
-            if (!is_selected)
-                wattron(win, A_DIM);
-            mvwprintw(win, y + 1, margin + 8, "%s", item->description);
-            if (!is_selected)
-                wattroff(win, A_DIM);
-        }
+            mvwprintw(win, y, margin, "   %s%s%s", prefix, item->label, suffix);
 
         if (is_selected)
             wattroff(win, A_REVERSE | COLOR_PAIR(2));
     }
 
     /* Scroll indicator */
-    if (count > visible) {
-        int indicator_y = menu_start;
-        int indicator_h = available;
-        int bar_h = (visible * indicator_h) / count;
+    if (count > menu_height) {
+        int bar_h = (menu_height * menu_height) / count;
         if (bar_h < 1) bar_h = 1;
-        int bar_start = indicator_y + (state->scroll_offset * indicator_h) / count;
+        int bar_start = menu_start + (state->scroll_offset * menu_height) / count;
 
-        for (int y = indicator_y; y < indicator_y + indicator_h; y++) {
+        for (int y = menu_start; y < menu_start + menu_height; y++) {
             if (y >= bar_start && y < bar_start + bar_h)
                 mvwaddch(win, y, maxx - 1, ACS_BLOCK);
             else
@@ -269,22 +251,21 @@ void menu_render(MenuState *state, WINDOW *win) {
     }
 
     /* Status bar */
-    int status_y = maxy - status_height;
+    int status_y = maxy - 2;
     mvwhline(win, status_y, 0, ACS_HLINE, maxx);
 
-    /* Show description of selected item (when items are single-line) */
+    /* Description of selected item */
     MenuItem *sel = menu_child_at(state->current_menu, state->cursor);
-    if (item_height < 2 && sel && sel->description[0]) {
+    if (sel && sel->description[0]) {
         wattron(win, COLOR_PAIR(3));
-        mvwprintw(win, status_y + 1, margin, "%s", sel->description);
+        mvwprintw(win, maxy - 1, margin, "%s", sel->description);
         wattroff(win, COLOR_PAIR(3));
+    } else {
+        wattron(win, A_DIM);
+        mvwprintw(win, maxy - 1, margin,
+                  "ENTER select  SPACE toggle  h/l navigate  r refresh  q quit");
+        wattroff(win, A_DIM);
     }
-
-    /* Key hints */
-    wattron(win, A_DIM);
-    mvwprintw(win, maxy - 1, margin,
-              "ENTER select  SPACE toggle  h/l navigate  r refresh  q quit");
-    wattroff(win, A_DIM);
 
     wrefresh(win);
 }
