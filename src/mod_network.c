@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "backend.h"
 #include "ui.h"
 
@@ -71,10 +72,17 @@ static void get_ip_and_dns(char *ip_out, size_t ip_size, char *dns_out, size_t d
     free_lines(lines, count);
 }
 
+/* Cached IP to avoid duplicate nmcli calls between refresh_fn and get_status */
+static char net_ip_cache[128] = "";
+static time_t net_status_time = 0;
+
 static void network_refresh(MenuItem *module_root) {
     /* 1 call for both IP and DNS (was 2 heavy nested pipelines) */
     char ip[128], dns[128];
     get_ip_and_dns(ip, sizeof(ip), dns, sizeof(dns));
+    /* Update cache so get_status doesn't re-run the same query */
+    strncpy(net_ip_cache, ip, sizeof(net_ip_cache) - 1);
+    net_status_time = time(NULL);
 
     MenuItem *child = module_root->children;
     while (child) {
@@ -138,10 +146,14 @@ static MenuItem *net_build_menu(void) {
 }
 
 static void net_get_status(char *buf, size_t size) {
-    char ip[128], dns[128];
-    get_ip_and_dns(ip, sizeof(ip), dns, sizeof(dns));
-    if (ip[0])
-        snprintf(buf, size, "%s", ip);
+    time_t now = time(NULL);
+    if (now - net_status_time > 1) {
+        char dns[128];
+        get_ip_and_dns(net_ip_cache, sizeof(net_ip_cache), dns, sizeof(dns));
+        net_status_time = now;
+    }
+    if (net_ip_cache[0])
+        snprintf(buf, size, "%s", net_ip_cache);
     else
         snprintf(buf, size, "no connection");
 }
