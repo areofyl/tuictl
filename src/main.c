@@ -51,7 +51,7 @@ void refresh_all(MenuState *state) {
     first_refresh = 0;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     MenuItem *root = menu_item_new("root", NULL, MENU_CATEGORY);
 
     register_module(mod_wifi_init(), root);
@@ -64,6 +64,22 @@ int main(void) {
     UIState ui;
     ui_init(&ui, root);
     ui.refresh_all = refresh_all;
+
+    /* If a module name was given as argument, jump into it */
+    if (argc > 1) {
+        MenuItem *child = root->children;
+        int idx = 0;
+        while (child) {
+            if (strncasecmp(child->label, argv[1], strlen(argv[1])) == 0) {
+                ui.menu.cursor = idx;
+                menu_activate(&ui.menu);
+                break;
+            }
+            child = child->next;
+            idx++;
+        }
+    }
+
     ui_loop(&ui);
     ui_cleanup(&ui);
 
