@@ -31,6 +31,8 @@ typedef struct MenuItem {
     void (*on_activate)(struct MenuItem *self);
     void (*on_refresh)(struct MenuItem *self);
     void (*on_lazy_load)(struct MenuItem *self); /* Called once on first enter */
+    void (*on_left)(struct MenuItem *self);      /* Left key / h */
+    void (*on_right)(struct MenuItem *self);     /* Right key / l */
     int lazy_loaded;
     void *userdata;
 } MenuItem;
