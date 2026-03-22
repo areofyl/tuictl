@@ -62,6 +62,8 @@ int main(void) {
     register_module(mod_bluetooth_init(), root);
     register_module(mod_audio_init(), root);
     register_module(mod_network_init(), root);
+    register_module(mod_power_init(), root);
+    register_module(mod_storage_init(), root);
 
     UIState ui;
     ui_init(&ui, root);
