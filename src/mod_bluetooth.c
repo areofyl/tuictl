@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "backend.h"
 #include "ui.h"
 
@@ -180,20 +181,33 @@ static MenuItem *bt_build_menu(void) {
     return root;
 }
 
-static void bt_get_status(char *buf, size_t size) {
+/* Cached status to avoid duplicate calls between refresh_fn and get_status */
+static char bt_status_cache[64] = "";
+static time_t bt_status_time = 0;
+
+static void bt_update_status_cache(void) {
     char rfk[64];
     run_cmd("rfkill list bluetooth -o SOFT -n 2>/dev/null", rfk, sizeof(rfk));
     if (strstr(rfk, "unblocked") == NULL) {
-        snprintf(buf, size, "off");
+        snprintf(bt_status_cache, sizeof(bt_status_cache), "off");
+        bt_status_time = time(NULL);
         return;
     }
     int count = 0;
     char **lines = run_cmd_lines("bluetoothctl devices Connected 2>/dev/null", &count);
     if (count > 0)
-        snprintf(buf, size, "%d connected", count);
+        snprintf(bt_status_cache, sizeof(bt_status_cache), "%d connected", count);
     else
-        snprintf(buf, size, "on");
+        snprintf(bt_status_cache, sizeof(bt_status_cache), "on");
     free_lines(lines, count);
+    bt_status_time = time(NULL);
+}
+
+static void bt_get_status(char *buf, size_t size) {
+    time_t now = time(NULL);
+    if (now - bt_status_time > 1)
+        bt_update_status_cache();
+    snprintf(buf, size, "%s", bt_status_cache);
 }
 
 static void bt_cleanup(void) {}
