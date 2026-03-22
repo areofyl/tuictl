@@ -176,12 +176,29 @@ static MenuItem *bt_build_menu(void) {
     return root;
 }
 
+static void bt_get_status(char *buf, size_t size) {
+    char rfk[64];
+    run_cmd("rfkill list bluetooth -o SOFT -n 2>/dev/null", rfk, sizeof(rfk));
+    if (strstr(rfk, "unblocked") == NULL) {
+        snprintf(buf, size, "off");
+        return;
+    }
+    int count = 0;
+    char **lines = run_cmd_lines("bluetoothctl devices Connected 2>/dev/null", &count);
+    if (count > 0)
+        snprintf(buf, size, "%d connected", count);
+    else
+        snprintf(buf, size, "on");
+    free_lines(lines, count);
+}
+
 static void bt_cleanup(void) {}
 
 static BackendModule bt_module = {
     .name = "bluetooth",
     .build_menu = bt_build_menu,
     .refresh_fn = bt_refresh,
+    .get_status = bt_get_status,
     .cleanup = bt_cleanup,
 };
 
