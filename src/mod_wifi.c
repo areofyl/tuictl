@@ -121,18 +121,14 @@ static void wifi_refresh(MenuItem *module_root) {
     }
 }
 
-static MenuItem *wifi_build_menu(void) {
-    MenuItem *root = menu_item_new("WiFi", "Manage wireless networks", MENU_CATEGORY);
-
+static void wifi_lazy_load(MenuItem *root) {
     MenuItem *toggle = menu_item_new("WiFi Enabled", "Toggle WiFi radio on/off", MENU_TOGGLE);
     toggle->on_activate = wifi_toggle_activate;
-    /* Check current state */
     char buf[64];
     run_cmd("nmcli radio wifi", buf, sizeof(buf));
     toggle->toggled = (strcmp(buf, "enabled") == 0);
     menu_add_child(root, toggle);
 
-    /* Connected network info */
     MenuItem *conn_info = menu_item_new("Not connected", NULL, MENU_INFO);
     char ssid[128];
     int ret = run_cmd("nmcli -t -f active,ssid dev wifi | grep '^yes'", ssid, sizeof(ssid));
@@ -149,7 +145,11 @@ static MenuItem *wifi_build_menu(void) {
     MenuItem *nets = menu_item_new("Available Networks", "Browse available WiFi networks", MENU_CATEGORY);
     menu_add_child(root, nets);
     rebuild_network_list(nets);
+}
 
+static MenuItem *wifi_build_menu(void) {
+    MenuItem *root = menu_item_new("WiFi", "Manage wireless networks", MENU_CATEGORY);
+    root->on_lazy_load = wifi_lazy_load;
     return root;
 }
 
