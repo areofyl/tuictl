@@ -39,7 +39,6 @@ static void mic_vol_down_activate(MenuItem *self) {
 }
 
 static void sink_activate(MenuItem *self) {
-    /* userdata stores the node ID as a string */
     const char *id = (const char *)self->userdata;
     if (!id) return;
     char cmd[128];
@@ -55,25 +54,46 @@ static void source_activate(MenuItem *self) {
     run_cmd_silent(cmd);
 }
 
-static int get_volume(const char *target) {
+/* Single call to get both volume and mute state from one wpctl invocation */
+static void get_volume_and_mute(const char *target, int *vol_out, int *muted_out) {
     char cmd[128], buf[128];
     snprintf(cmd, sizeof(cmd), "wpctl get-volume %s 2>/dev/null", target);
     run_cmd(cmd, buf, sizeof(buf));
     /* Output: "Volume: 0.50" or "Volume: 0.50 [MUTED]" */
     float vol = 0;
     if (sscanf(buf, "Volume: %f", &vol) == 1)
-        return (int)(vol * 100 + 0.5);
-    return -1;
+        *vol_out = (int)(vol * 100 + 0.5);
+    else
+        *vol_out = -1;
+    *muted_out = (strstr(buf, "[MUTED]") != NULL);
 }
 
-static int is_muted(const char *target) {
-    char cmd[128], buf[128];
-    snprintf(cmd, sizeof(cmd), "wpctl get-volume %s 2>/dev/null", target);
-    run_cmd(cmd, buf, sizeof(buf));
-    return strstr(buf, "[MUTED]") != NULL;
+/* Parse a wpctl status device line, return 1 on success */
+static int parse_device_line(char *line, int *id_out, char *name_out,
+                             size_t name_size, int *is_default_out) {
+    char *p = line;
+    while (*p == ' ' || *p == '\t' || *p == '|') p++;
+    while ((unsigned char)*p >= 0x80) p++;
+    while (*p == ' ') p++;
+
+    *is_default_out = (*p == '*');
+    if (*is_default_out) p++;
+
+    if (sscanf(p, "%d.", id_out) != 1) return 0;
+
+    char *dot = strchr(p, '.');
+    if (!dot) return 0;
+    dot++;
+    while (*dot == ' ') dot++;
+
+    strncpy(name_out, dot, name_size - 1);
+    name_out[name_size - 1] = '\0';
+    char *bracket = strstr(name_out, " [vol:");
+    if (bracket) *bracket = '\0';
+    return 1;
 }
 
-static void rebuild_sinks(MenuItem *cat) {
+static void free_menu_children(MenuItem *cat) {
     MenuItem *child = cat->children;
     while (child) {
         MenuItem *next = child->next;
@@ -83,186 +103,115 @@ static void rebuild_sinks(MenuItem *cat) {
         child = next;
     }
     cat->children = NULL;
+}
 
-    /* Parse wpctl status for sinks */
+/* Single wpctl status call, populates both sinks and sources categories */
+static void rebuild_sinks_and_sources(MenuItem *sinks_cat, MenuItem *sources_cat) {
+    free_menu_children(sinks_cat);
+    free_menu_children(sources_cat);
+
     int count = 0;
     char **lines = run_cmd_lines("wpctl status 2>/dev/null", &count);
 
-    int in_sinks = 0;
+    enum { SECTION_NONE, SECTION_SINKS, SECTION_SOURCES } section = SECTION_NONE;
+
     for (int i = 0; i < count; i++) {
         char *line = lines[i];
 
         if (strstr(line, "Audio/Sink")) {
-            in_sinks = 1;
+            section = SECTION_SINKS;
             continue;
         }
-        if (in_sinks && (line[0] == '\0' || strstr(line, "Audio/Source") ||
-                         strstr(line, "Video/") || strstr(line, "Streams:"))) {
-            in_sinks = 0;
-            continue;
-        }
-
-        if (!in_sinks) continue;
-
-        /* Lines look like: " │   46. Starship/Matisse HD Audio Controller Analog Stereo [vol: 0.50]" */
-        /* Or with *: " │  *46. Name [vol: 0.50]" */
-        char *p = line;
-        while (*p == ' ' || *p == '\t' || *p == '|') p++;
-        /* Skip box-drawing chars (UTF-8) */
-        while ((unsigned char)*p >= 0x80) p++;
-        while (*p == ' ') p++;
-
-        int is_default = (*p == '*');
-        if (is_default) p++;
-
-        int id = 0;
-        if (sscanf(p, "%d.", &id) != 1) continue;
-
-        /* Skip past "ID. " */
-        char *dot = strchr(p, '.');
-        if (!dot) continue;
-        dot++;
-        while (*dot == ' ') dot++;
-
-        /* Extract name (up to [vol:) */
-        char name[128];
-        strncpy(name, dot, sizeof(name) - 1);
-        name[sizeof(name) - 1] = '\0';
-        char *bracket = strstr(name, " [vol:");
-        if (bracket) *bracket = '\0';
-
-        char label[128];
-        snprintf(label, sizeof(label), "%s%s", name, is_default ? " *" : "");
-
-        char desc[128];
-        snprintf(desc, sizeof(desc), "Set %s as default output", name);
-
-        MenuItem *item = menu_item_new(label, desc, MENU_ACTION);
-        item->on_activate = sink_activate;
-        char id_str[16];
-        snprintf(id_str, sizeof(id_str), "%d", id);
-        item->userdata = strdup(id_str);
-        menu_add_child(cat, item);
-    }
-
-    if (menu_child_count(cat) == 0)
-        menu_add_child(cat, menu_item_new("No sinks found", NULL, MENU_INFO));
-
-    free_lines(lines, count);
-}
-
-static void rebuild_sources(MenuItem *cat) {
-    MenuItem *child = cat->children;
-    while (child) {
-        MenuItem *next = child->next;
-        free(child->userdata);
-        child->userdata = NULL;
-        menu_free(child);
-        child = next;
-    }
-    cat->children = NULL;
-
-    int count = 0;
-    char **lines = run_cmd_lines("wpctl status 2>/dev/null", &count);
-
-    int in_sources = 0;
-    for (int i = 0; i < count; i++) {
-        char *line = lines[i];
-
         if (strstr(line, "Audio/Source")) {
-            in_sources = 1;
+            section = SECTION_SOURCES;
             continue;
         }
-        if (in_sources && (line[0] == '\0' || strstr(line, "Video/") ||
-                           strstr(line, "Streams:"))) {
-            in_sources = 0;
+        if (section != SECTION_NONE &&
+            (line[0] == '\0' || strstr(line, "Video/") || strstr(line, "Streams:"))) {
+            section = SECTION_NONE;
             continue;
         }
+        if (section == SECTION_NONE) continue;
 
-        if (!in_sources) continue;
-
-        char *p = line;
-        while (*p == ' ' || *p == '\t' || *p == '|') p++;
-        while ((unsigned char)*p >= 0x80) p++;
-        while (*p == ' ') p++;
-
-        int is_default = (*p == '*');
-        if (is_default) p++;
-
-        int id = 0;
-        if (sscanf(p, "%d.", &id) != 1) continue;
-
-        char *dot = strchr(p, '.');
-        if (!dot) continue;
-        dot++;
-        while (*dot == ' ') dot++;
-
+        int id, is_default;
         char name[128];
-        strncpy(name, dot, sizeof(name) - 1);
-        name[sizeof(name) - 1] = '\0';
-        char *bracket = strstr(name, " [vol:");
-        if (bracket) *bracket = '\0';
+        if (!parse_device_line(line, &id, name, sizeof(name), &is_default))
+            continue;
+
+        MenuItem *target_cat = (section == SECTION_SINKS) ? sinks_cat : sources_cat;
+        int is_sink = (section == SECTION_SINKS);
 
         char label[128];
         snprintf(label, sizeof(label), "%s%s", name, is_default ? " *" : "");
 
         char desc[128];
-        snprintf(desc, sizeof(desc), "Set %s as default input", name);
+        snprintf(desc, sizeof(desc), "Set %s as default %s", name,
+                 is_sink ? "output" : "input");
 
         MenuItem *item = menu_item_new(label, desc, MENU_ACTION);
-        item->on_activate = source_activate;
+        item->on_activate = is_sink ? sink_activate : source_activate;
         char id_str[16];
         snprintf(id_str, sizeof(id_str), "%d", id);
         item->userdata = strdup(id_str);
-        menu_add_child(cat, item);
+        menu_add_child(target_cat, item);
     }
 
-    if (menu_child_count(cat) == 0)
-        menu_add_child(cat, menu_item_new("No sources found", NULL, MENU_INFO));
+    if (menu_child_count(sinks_cat) == 0)
+        menu_add_child(sinks_cat, menu_item_new("No sinks found", NULL, MENU_INFO));
+    if (menu_child_count(sources_cat) == 0)
+        menu_add_child(sources_cat, menu_item_new("No sources found", NULL, MENU_INFO));
 
     free_lines(lines, count);
-}
-
-static void update_vol_label(MenuItem *item, const char *target, const char *prefix) {
-    int vol = get_volume(target);
-    if (vol >= 0)
-        snprintf(item->label, sizeof(item->label), "%s: %d%%", prefix, vol);
 }
 
 static void audio_refresh(MenuItem *module_root) {
+    /* 1 call for sink volume+mute, 1 call for source volume+mute (was 4) */
+    int sink_vol, sink_muted, src_vol, src_muted;
+    get_volume_and_mute("@DEFAULT_AUDIO_SINK@", &sink_vol, &sink_muted);
+    get_volume_and_mute("@DEFAULT_AUDIO_SOURCE@", &src_vol, &src_muted);
+
+    /* Find sink and source category nodes for the single wpctl status call */
+    MenuItem *sinks_cat = NULL, *sources_cat = NULL;
+
     MenuItem *child = module_root->children;
     while (child) {
         if (child->type == MENU_TOGGLE && strstr(child->label, "Mute") && !strstr(child->label, "Mic"))
-            child->toggled = is_muted("@DEFAULT_AUDIO_SINK@");
+            child->toggled = sink_muted;
         else if (child->type == MENU_TOGGLE && strstr(child->label, "Mic"))
-            child->toggled = is_muted("@DEFAULT_AUDIO_SOURCE@");
-        else if (child->type == MENU_INFO && strstr(child->label, "Volume"))
-            update_vol_label(child, "@DEFAULT_AUDIO_SINK@", "Volume");
-        else if (child->type == MENU_INFO && strstr(child->label, "Mic Level"))
-            update_vol_label(child, "@DEFAULT_AUDIO_SOURCE@", "Mic Level");
+            child->toggled = src_muted;
+        else if (child->type == MENU_INFO && strstr(child->label, "Volume") && sink_vol >= 0)
+            snprintf(child->label, sizeof(child->label), "Volume: %d%%", sink_vol);
+        else if (child->type == MENU_INFO && strstr(child->label, "Mic Level") && src_vol >= 0)
+            snprintf(child->label, sizeof(child->label), "Mic Level: %d%%", src_vol);
         else if (child->type == MENU_CATEGORY && strstr(child->label, "Output"))
-            rebuild_sinks(child);
+            sinks_cat = child;
         else if (child->type == MENU_CATEGORY && strstr(child->label, "Input"))
-            rebuild_sources(child);
+            sources_cat = child;
         child = child->next;
     }
+
+    /* 1 call for both sinks and sources (was 2) */
+    if (sinks_cat && sources_cat)
+        rebuild_sinks_and_sources(sinks_cat, sources_cat);
 }
 
 static MenuItem *audio_build_menu(void) {
     MenuItem *root = menu_item_new("Audio", "Audio output and input settings", MENU_CATEGORY);
 
-    /* Volume info */
+    /* Get sink volume+mute in 1 call (was 2) */
+    int sink_vol, sink_muted;
+    get_volume_and_mute("@DEFAULT_AUDIO_SINK@", &sink_vol, &sink_muted);
+
     MenuItem *vol_info = menu_item_new("Volume: ??%", NULL, MENU_INFO);
-    update_vol_label(vol_info, "@DEFAULT_AUDIO_SINK@", "Volume");
+    if (sink_vol >= 0)
+        snprintf(vol_info->label, sizeof(vol_info->label), "Volume: %d%%", sink_vol);
     menu_add_child(root, vol_info);
 
-    /* Mute toggle */
     MenuItem *mute = menu_item_new("Mute", "Toggle audio mute", MENU_TOGGLE);
     mute->on_activate = mute_activate;
-    mute->toggled = is_muted("@DEFAULT_AUDIO_SINK@");
+    mute->toggled = sink_muted;
     menu_add_child(root, mute);
 
-    /* Volume controls */
     MenuItem *vup = menu_item_new("Volume +5%", "Increase volume by 5%", MENU_ACTION);
     vup->on_activate = vol_up_activate;
     menu_add_child(root, vup);
@@ -271,23 +220,23 @@ static MenuItem *audio_build_menu(void) {
     vdown->on_activate = vol_down_activate;
     menu_add_child(root, vdown);
 
-    /* Output devices */
     MenuItem *sinks = menu_item_new("Output Devices", "Select default audio output", MENU_CATEGORY);
     menu_add_child(root, sinks);
-    rebuild_sinks(sinks);
 
-    /* Mic level info */
+    /* Get source volume+mute in 1 call (was 2) */
+    int src_vol, src_muted;
+    get_volume_and_mute("@DEFAULT_AUDIO_SOURCE@", &src_vol, &src_muted);
+
     MenuItem *mic_info = menu_item_new("Mic Level: ??%", NULL, MENU_INFO);
-    update_vol_label(mic_info, "@DEFAULT_AUDIO_SOURCE@", "Mic Level");
+    if (src_vol >= 0)
+        snprintf(mic_info->label, sizeof(mic_info->label), "Mic Level: %d%%", src_vol);
     menu_add_child(root, mic_info);
 
-    /* Mic mute */
     MenuItem *mic_mute = menu_item_new("Mic Mute", "Toggle microphone mute", MENU_TOGGLE);
     mic_mute->on_activate = mic_mute_activate;
-    mic_mute->toggled = is_muted("@DEFAULT_AUDIO_SOURCE@");
+    mic_mute->toggled = src_muted;
     menu_add_child(root, mic_mute);
 
-    /* Mic volume controls */
     MenuItem *mup = menu_item_new("Mic Volume +5%", "Increase mic volume by 5%", MENU_ACTION);
     mup->on_activate = mic_vol_up_activate;
     menu_add_child(root, mup);
@@ -296,10 +245,11 @@ static MenuItem *audio_build_menu(void) {
     mdown->on_activate = mic_vol_down_activate;
     menu_add_child(root, mdown);
 
-    /* Input devices */
     MenuItem *sources = menu_item_new("Input Devices", "Select default audio input", MENU_CATEGORY);
     menu_add_child(root, sources);
-    rebuild_sources(sources);
+
+    /* 1 call for both sinks and sources (was 2) */
+    rebuild_sinks_and_sources(sinks, sources);
 
     return root;
 }
