@@ -62,15 +62,7 @@ static int mac_in_list(const char *mac, char **lines, int count) {
 }
 
 static void rebuild_device_list(MenuItem *devices_cat) {
-    MenuItem *child = devices_cat->children;
-    while (child) {
-        MenuItem *next = child->next;
-        free(child->userdata);
-        child->userdata = NULL;
-        menu_free(child);
-        child = next;
-    }
-    devices_cat->children = NULL;
+    menu_free_children(devices_cat);
 
     /* 1 call: all devices */
     int count = 0;
