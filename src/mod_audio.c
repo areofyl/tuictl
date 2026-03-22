@@ -4,6 +4,9 @@
 #include <string.h>
 #include "backend.h"
 
+/* Forward declarations */
+static void get_volume_and_mute(const char *target, int *vol_out, int *muted_out);
+
 static void mute_activate(MenuItem *self) {
     if (self->toggled)
         run_cmd_silent("wpctl set-mute @DEFAULT_AUDIO_SINK@ 1");
@@ -18,24 +21,40 @@ static void mic_mute_activate(MenuItem *self) {
         run_cmd_silent("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ 0");
 }
 
-static void vol_up_activate(MenuItem *self) {
-    (void)self;
+/* Update slider label: "Volume [====------] 45%" */
+static void update_slider_label(MenuItem *self, const char *target, const char *prefix) {
+    int vol, muted;
+    get_volume_and_mute(target, &vol, &muted);
+    if (vol < 0) vol = 0;
+    if (vol > 100) vol = 100;
+    int filled = vol / 5; /* 20 chars wide */
+    char bar[32];
+    int i;
+    for (i = 0; i < filled && i < 20; i++) bar[i] = '=';
+    for (; i < 20; i++) bar[i] = '-';
+    bar[20] = '\0';
+    snprintf(self->label, sizeof(self->label), "%s [%s] %d%%%s",
+             prefix, bar, vol, muted ? " [MUTED]" : "");
+}
+
+static void vol_right(MenuItem *self) {
     run_cmd_silent("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+");
+    update_slider_label(self, "@DEFAULT_AUDIO_SINK@", "Volume");
 }
 
-static void vol_down_activate(MenuItem *self) {
-    (void)self;
+static void vol_left(MenuItem *self) {
     run_cmd_silent("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-");
+    update_slider_label(self, "@DEFAULT_AUDIO_SINK@", "Volume");
 }
 
-static void mic_vol_up_activate(MenuItem *self) {
-    (void)self;
+static void mic_vol_right(MenuItem *self) {
     run_cmd_silent("wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 5%+");
+    update_slider_label(self, "@DEFAULT_AUDIO_SOURCE@", "Mic");
 }
 
-static void mic_vol_down_activate(MenuItem *self) {
-    (void)self;
+static void mic_vol_left(MenuItem *self) {
     run_cmd_silent("wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 5%-");
+    update_slider_label(self, "@DEFAULT_AUDIO_SOURCE@", "Mic");
 }
 
 static void sink_activate(MenuItem *self) {
@@ -167,10 +186,10 @@ static void audio_refresh(MenuItem *module_root) {
             child->toggled = sink_muted;
         else if (child->type == MENU_TOGGLE && strstr(child->label, "Mic"))
             child->toggled = src_muted;
-        else if (child->type == MENU_INFO && strstr(child->label, "Volume") && sink_vol >= 0)
-            snprintf(child->label, sizeof(child->label), "Volume: %d%%", sink_vol);
-        else if (child->type == MENU_INFO && strstr(child->label, "Mic Level") && src_vol >= 0)
-            snprintf(child->label, sizeof(child->label), "Mic Level: %d%%", src_vol);
+        else if (child->type == MENU_INFO && child->on_left && strstr(child->label, "Volume"))
+            update_slider_label(child, "@DEFAULT_AUDIO_SINK@", "Volume");
+        else if (child->type == MENU_INFO && child->on_left && strstr(child->label, "Mic"))
+            update_slider_label(child, "@DEFAULT_AUDIO_SOURCE@", "Mic");
         else if (child->type == MENU_CATEGORY && strstr(child->label, "Output"))
             sinks_cat = child;
         else if (child->type == MENU_CATEGORY && strstr(child->label, "Input"))
@@ -187,23 +206,17 @@ static void audio_lazy_load(MenuItem *root) {
     int sink_vol, sink_muted;
     get_volume_and_mute("@DEFAULT_AUDIO_SINK@", &sink_vol, &sink_muted);
 
-    MenuItem *vol_info = menu_item_new("Volume: ??%", NULL, MENU_INFO);
-    if (sink_vol >= 0)
-        snprintf(vol_info->label, sizeof(vol_info->label), "Volume: %d%%", sink_vol);
-    menu_add_child(root, vol_info);
+    /* Volume slider: left/right to adjust */
+    MenuItem *vol_slider = menu_item_new("Volume", "Use left/right to adjust volume", MENU_INFO);
+    vol_slider->on_left = vol_left;
+    vol_slider->on_right = vol_right;
+    update_slider_label(vol_slider, "@DEFAULT_AUDIO_SINK@", "Volume");
+    menu_add_child(root, vol_slider);
 
     MenuItem *mute = menu_item_new("Mute", "Toggle audio mute", MENU_TOGGLE);
     mute->on_activate = mute_activate;
     mute->toggled = sink_muted;
     menu_add_child(root, mute);
-
-    MenuItem *vup = menu_item_new("Volume +5%", "Increase volume by 5%", MENU_ACTION);
-    vup->on_activate = vol_up_activate;
-    menu_add_child(root, vup);
-
-    MenuItem *vdown = menu_item_new("Volume -5%", "Decrease volume by 5%", MENU_ACTION);
-    vdown->on_activate = vol_down_activate;
-    menu_add_child(root, vdown);
 
     MenuItem *sinks = menu_item_new("Output Devices", "Select default audio output", MENU_CATEGORY);
     menu_add_child(root, sinks);
@@ -211,23 +224,17 @@ static void audio_lazy_load(MenuItem *root) {
     int src_vol, src_muted;
     get_volume_and_mute("@DEFAULT_AUDIO_SOURCE@", &src_vol, &src_muted);
 
-    MenuItem *mic_info = menu_item_new("Mic Level: ??%", NULL, MENU_INFO);
-    if (src_vol >= 0)
-        snprintf(mic_info->label, sizeof(mic_info->label), "Mic Level: %d%%", src_vol);
-    menu_add_child(root, mic_info);
+    /* Mic slider: left/right to adjust */
+    MenuItem *mic_slider = menu_item_new("Mic", "Use left/right to adjust mic volume", MENU_INFO);
+    mic_slider->on_left = mic_vol_left;
+    mic_slider->on_right = mic_vol_right;
+    update_slider_label(mic_slider, "@DEFAULT_AUDIO_SOURCE@", "Mic");
+    menu_add_child(root, mic_slider);
 
     MenuItem *mic_mute = menu_item_new("Mic Mute", "Toggle microphone mute", MENU_TOGGLE);
     mic_mute->on_activate = mic_mute_activate;
     mic_mute->toggled = src_muted;
     menu_add_child(root, mic_mute);
-
-    MenuItem *mup = menu_item_new("Mic Volume +5%", "Increase mic volume by 5%", MENU_ACTION);
-    mup->on_activate = mic_vol_up_activate;
-    menu_add_child(root, mup);
-
-    MenuItem *mdown = menu_item_new("Mic Volume -5%", "Decrease mic volume by 5%", MENU_ACTION);
-    mdown->on_activate = mic_vol_down_activate;
-    menu_add_child(root, mdown);
 
     MenuItem *sources = menu_item_new("Input Devices", "Select default audio input", MENU_CATEGORY);
     menu_add_child(root, sources);
