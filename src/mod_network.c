@@ -100,10 +100,7 @@ static void network_refresh(MenuItem *module_root) {
     }
 }
 
-static MenuItem *net_build_menu(void) {
-    MenuItem *root = menu_item_new("Network", "General network information", MENU_CATEGORY);
-
-    /* Hostname: 1 call */
+static void net_lazy_load(MenuItem *root) {
     MenuItem *host = menu_item_new("Hostname: ?", NULL, MENU_INFO);
     char hbuf[128];
     run_cmd("hostname", hbuf, sizeof(hbuf));
@@ -111,7 +108,6 @@ static MenuItem *net_build_menu(void) {
         snprintf(host->label, sizeof(host->label), "Hostname: %s", hbuf);
     menu_add_child(root, host);
 
-    /* IP + DNS: 1 call (was 2 nested subshell pipelines) */
     char ip_str[128], dns_str[128];
     get_ip_and_dns(ip_str, sizeof(ip_str), dns_str, sizeof(dns_str));
 
@@ -125,7 +121,6 @@ static MenuItem *net_build_menu(void) {
         snprintf(dns->label, sizeof(dns->label), "DNS: %s", dns_str);
     menu_add_child(root, dns);
 
-    /* Airplane mode */
     char buf[256];
     MenuItem *airplane = menu_item_new("Airplane Mode", "Block all wireless radios", MENU_TOGGLE);
     airplane->on_activate = airplane_activate;
@@ -133,11 +128,14 @@ static MenuItem *net_build_menu(void) {
     airplane->toggled = (strstr(buf, "unblocked") == NULL && buf[0] != '\0');
     menu_add_child(root, airplane);
 
-    /* Active connections */
     MenuItem *conns = menu_item_new("Active Connections", "Currently active network connections", MENU_CATEGORY);
     menu_add_child(root, conns);
     rebuild_connections(conns);
+}
 
+static MenuItem *net_build_menu(void) {
+    MenuItem *root = menu_item_new("Network", "General network information", MENU_CATEGORY);
+    root->on_lazy_load = net_lazy_load;
     return root;
 }
 
