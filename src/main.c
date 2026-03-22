@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "menu.h"
@@ -11,6 +12,15 @@ static int module_count = 0;
 static void register_module(BackendModule *mod, MenuItem *root) {
     MenuItem *subtree = mod->build_menu();
     if (subtree) {
+        if (mod->get_status) {
+            char status[64];
+            mod->get_status(status, sizeof(status));
+            if (status[0]) {
+                char label[128];
+                snprintf(label, sizeof(label), "%s [%s]", subtree->label, status);
+                strncpy(subtree->label, label, sizeof(subtree->label) - 1);
+            }
+        }
         menu_add_child(root, subtree);
         modules[module_count++] = mod;
     }
@@ -22,13 +32,23 @@ void refresh_all(MenuState *state) {
     while (active->parent && active->parent != state->root)
         active = active->parent;
 
-    /* If we're at root, refresh all. Otherwise only the active module. */
     MenuItem *child = state->root->children;
     int i = 0;
     while (child && i < module_count) {
         if (child == active || active == state->root) {
             if (modules[i]->refresh_fn)
                 modules[i]->refresh_fn(child);
+        }
+        /* Always update status indicator in the top-level label */
+        if (modules[i]->get_status) {
+            char status[64];
+            modules[i]->get_status(status, sizeof(status));
+            /* Find base name (before " [") */
+            char *bracket = strstr(child->label, " [");
+            if (bracket) *bracket = '\0';
+            char label[128];
+            snprintf(label, sizeof(label), "%s [%s]", child->label, status);
+            strncpy(child->label, label, sizeof(child->label) - 1);
         }
         child = child->next;
         i++;
