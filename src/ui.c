@@ -3,6 +3,7 @@
 
 void ui_init(UIState *ui, MenuItem *root) {
     setlocale(LC_ALL, "");
+    set_escdelay(25);
     initscr();
     cbreak();
     noecho();
