@@ -34,9 +34,16 @@ static MenuItem *selected_item(MenuState *menu) {
 }
 
 void ui_loop(UIState *ui) {
+    wtimeout(ui->win, 5000); /* 5 second auto-refresh */
     while (ui->running) {
         menu_render(&ui->menu, ui->win);
         int ch = wgetch(ui->win);
+        if (ch == ERR) {
+            /* Timeout — auto-refresh */
+            if (ui->refresh_all)
+                ui->refresh_all(&ui->menu);
+            continue;
+        }
         MenuItem *sel = selected_item(&ui->menu);
 
         switch (ch) {
