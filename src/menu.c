@@ -17,108 +17,99 @@ static struct {
     char vol[16];
     char bat[16];
     char ip[32];
+    char uptime[64];
+    char mem[32];
+    char load[16];
     time_t last_update;
 } sysinfo_cache;
 
+static char *read_cmd(const char *cmd, char *buf, size_t size) {
+    buf[0] = '\0';
+    FILE *fp = popen(cmd, "r");
+    if (fp) {
+        if (fgets(buf, size, fp))
+            buf[strcspn(buf, "\n\r")] = '\0';
+        pclose(fp);
+    }
+    return buf;
+}
+
+static char *read_file(const char *path, char *buf, size_t size) {
+    buf[0] = '\0';
+    FILE *fp = fopen(path, "r");
+    if (fp) {
+        if (fgets(buf, size, fp))
+            buf[strcspn(buf, "\n\r")] = '\0';
+        fclose(fp);
+    }
+    return buf;
+}
+
 static void sysinfo_refresh(void) {
     time_t now = time(NULL);
-    /* Only refresh every 5 seconds */
     if (sysinfo_cache.last_update && now - sysinfo_cache.last_update < 5)
         return;
     sysinfo_cache.last_update = now;
 
-    /* User + host (rarely changes, but cheap) */
     char *u = getenv("USER");
     if (u) strncpy(sysinfo_cache.user, u, sizeof(sysinfo_cache.user) - 1);
     gethostname(sysinfo_cache.host, sizeof(sysinfo_cache.host));
 
-    /* Kernel */
     struct utsname un;
     if (uname(&un) == 0)
         snprintf(sysinfo_cache.kernel, sizeof(sysinfo_cache.kernel), "%s %s", un.sysname, un.release);
 
-    /* WiFi SSID */
-    FILE *fp = popen("nmcli -t -f active,ssid dev wifi 2>/dev/null | grep '^yes'", "r");
+    /* WiFi */
+    char buf[128];
+    read_cmd("nmcli -t -f active,ssid dev wifi 2>/dev/null | grep '^yes'", buf, sizeof(buf));
     sysinfo_cache.wifi[0] = '\0';
-    if (fp) {
-        char buf[128];
-        if (fgets(buf, sizeof(buf), fp)) {
-            char *s = strchr(buf, ':');
-            if (s) {
-                s++;
-                size_t len = strlen(s);
-                while (len > 0 && (s[len-1] == '\n' || s[len-1] == '\r')) s[--len] = '\0';
-                strncpy(sysinfo_cache.wifi, s, sizeof(sysinfo_cache.wifi) - 1);
-            }
-        }
-        pclose(fp);
-    }
+    char *s = strchr(buf, ':');
+    if (s && *(s+1)) strncpy(sysinfo_cache.wifi, s + 1, sizeof(sysinfo_cache.wifi) - 1);
 
     /* Bluetooth */
-    fp = popen("bluetoothctl devices Connected 2>/dev/null | wc -l", "r");
-    sysinfo_cache.bt[0] = '\0';
-    if (fp) {
-        char buf[16];
-        if (fgets(buf, sizeof(buf), fp)) {
-            int n = atoi(buf);
-            if (n > 0)
-                snprintf(sysinfo_cache.bt, sizeof(sysinfo_cache.bt), "%d dev", n);
-            else
-                snprintf(sysinfo_cache.bt, sizeof(sysinfo_cache.bt), "on");
-        }
-        pclose(fp);
-    }
+    read_cmd("bluetoothctl devices Connected 2>/dev/null | wc -l", buf, sizeof(buf));
+    int btcount = atoi(buf);
+    if (btcount > 0)
+        snprintf(sysinfo_cache.bt, sizeof(sysinfo_cache.bt), "%d connected", btcount);
+    else
+        snprintf(sysinfo_cache.bt, sizeof(sysinfo_cache.bt), "on");
 
     /* Volume */
-    fp = popen("wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null", "r");
+    read_cmd("wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null", buf, sizeof(buf));
     sysinfo_cache.vol[0] = '\0';
-    if (fp) {
-        char buf[64];
-        if (fgets(buf, sizeof(buf), fp)) {
-            float v;
-            if (sscanf(buf, "Volume: %f", &v) == 1) {
-                if (strstr(buf, "[MUTED]"))
-                    snprintf(sysinfo_cache.vol, sizeof(sysinfo_cache.vol), "muted");
-                else
-                    snprintf(sysinfo_cache.vol, sizeof(sysinfo_cache.vol), "%d%%", (int)(v * 100 + 0.5));
-            }
-        }
-        pclose(fp);
+    float v;
+    if (sscanf(buf, "Volume: %f", &v) == 1) {
+        if (strstr(buf, "[MUTED]"))
+            snprintf(sysinfo_cache.vol, sizeof(sysinfo_cache.vol), "muted");
+        else
+            snprintf(sysinfo_cache.vol, sizeof(sysinfo_cache.vol), "%d%%", (int)(v * 100 + 0.5));
     }
 
     /* Battery */
-    fp = fopen("/sys/class/power_supply/macsmc-battery/capacity", "r");
     sysinfo_cache.bat[0] = '\0';
-    if (fp) {
-        char buf[16];
-        if (fgets(buf, sizeof(buf), fp)) {
-            buf[strcspn(buf, "\n")] = '\0';
-            FILE *fp2 = fopen("/sys/class/power_supply/macsmc-battery/status", "r");
-            char st = ' ';
-            if (fp2) {
-                char sb[32];
-                if (fgets(sb, sizeof(sb), fp2)) {
-                    if (strstr(sb, "Charging")) st = '+';
-                    else if (strstr(sb, "Discharging")) st = '-';
-                }
-                fclose(fp2);
-            }
-            snprintf(sysinfo_cache.bat, sizeof(sysinfo_cache.bat), "%s%%%c", buf, st);
-        }
-        fclose(fp);
+    char cap[16];
+    read_file("/sys/class/power_supply/macsmc-battery/capacity", cap, sizeof(cap));
+    if (cap[0]) {
+        char st[32];
+        read_file("/sys/class/power_supply/macsmc-battery/status", st, sizeof(st));
+        char icon = ' ';
+        if (strstr(st, "Charging")) icon = '+';
+        else if (strstr(st, "Discharging")) icon = '-';
+        snprintf(sysinfo_cache.bat, sizeof(sysinfo_cache.bat), "%s%%%c", cap, icon);
     }
 
     /* IP */
-    fp = popen("nmcli -t -f IP4.ADDRESS device show 2>/dev/null | grep IP4 | head -1 | cut -d: -f2", "r");
-    sysinfo_cache.ip[0] = '\0';
-    if (fp) {
-        char buf[64];
-        if (fgets(buf, sizeof(buf), fp)) {
-            buf[strcspn(buf, "\n")] = '\0';
-            strncpy(sysinfo_cache.ip, buf, sizeof(sysinfo_cache.ip) - 1);
-        }
-        pclose(fp);
-    }
+    read_cmd("nmcli -t -f IP4.ADDRESS device show 2>/dev/null | grep IP4 | head -1 | cut -d: -f2",
+             sysinfo_cache.ip, sizeof(sysinfo_cache.ip));
+
+    /* Uptime */
+    read_cmd("uptime -p 2>/dev/null | sed 's/^up //'", sysinfo_cache.uptime, sizeof(sysinfo_cache.uptime));
+
+    /* Memory */
+    read_cmd("free -h 2>/dev/null | awk '/Mem:/{print $3\"/\"$2}'", sysinfo_cache.mem, sizeof(sysinfo_cache.mem));
+
+    /* Load */
+    read_cmd("cat /proc/loadavg 2>/dev/null | cut -d' ' -f1", sysinfo_cache.load, sizeof(sysinfo_cache.load));
 }
 
 MenuItem *menu_item_new(const char *label, const char *desc, MenuItemType type) {
@@ -291,16 +282,24 @@ void menu_render(MenuState *state, WINDOW *win) {
     if (margin < 2) margin = 2;
     if (margin > 12) margin = 12;
 
-    /* Header */
+    /* System info */
+    sysinfo_refresh();
+    time_t now_t = time(NULL);
+    struct tm *tm = localtime(&now_t);
+    char timebuf[16];
+    strftime(timebuf, sizeof(timebuf), "%H:%M", tm);
+
+    /* Line 0: tuictl title + time right-aligned */
     wattron(win, A_BOLD | COLOR_PAIR(1));
-    mvwhline(win, 0, 0, ACS_HLINE, maxx);
-    mvwprintw(win, 0, margin, " tuictl ");
+    mvwprintw(win, 0, margin, "tuictl");
     wattroff(win, A_BOLD | COLOR_PAIR(1));
 
-    /* Notification (right-aligned, fades after 3s) */
+    /* Notification or time on the right */
+    int has_notification = 0;
     if (g_ui && g_ui->notification[0]) {
         time_t now = time(NULL);
         if (now - g_ui->notify_time < 3) {
+            has_notification = 1;
             int len = strlen(g_ui->notification);
             int nx = maxx - len - margin - 2;
             if (nx < margin + 10) nx = margin + 10;
@@ -311,70 +310,81 @@ void menu_render(MenuState *state, WINDOW *win) {
             g_ui->notification[0] = '\0';
         }
     }
-
-    /* System info bar */
-    sysinfo_refresh();
-    time_t now_t = time(NULL);
-    struct tm *tm = localtime(&now_t);
-    char timebuf[16];
-    strftime(timebuf, sizeof(timebuf), "%H:%M", tm);
-
-    /* Line 1: user@host | kernel | time */
-    wattron(win, COLOR_PAIR(3));
-    mvwprintw(win, 1, margin, "%s@%s", sysinfo_cache.user, sysinfo_cache.host);
-    wattroff(win, COLOR_PAIR(3));
-
-    /* Right-align kernel + time */
-    char right1[128];
-    snprintf(right1, sizeof(right1), "%s  %s", sysinfo_cache.kernel, timebuf);
-    int r1x = maxx - margin - (int)strlen(right1);
-    if (r1x > margin + 20) {
-        wattron(win, A_DIM);
-        mvwprintw(win, 1, r1x, "%s", right1);
-        wattroff(win, A_DIM);
+    if (!has_notification) {
+        int tx = maxx - margin - (int)strlen(timebuf);
+        wattron(win, A_BOLD);
+        mvwprintw(win, 0, tx, "%s", timebuf);
+        wattroff(win, A_BOLD);
     }
 
-    /* Line 2: wifi | bt | vol | bat | ip */
+    /* Line 1: user@host  kernel  uptime */
+    wattron(win, COLOR_PAIR(1));
+    mvwprintw(win, 1, margin, "%s@%s", sysinfo_cache.user, sysinfo_cache.host);
+    wattroff(win, COLOR_PAIR(1));
+
+    {
+        char right[128];
+        snprintf(right, sizeof(right), "%s  up %s",
+                 sysinfo_cache.kernel, sysinfo_cache.uptime);
+        int rx = maxx - margin - (int)strlen(right);
+        if (rx > margin + 20) {
+            wattron(win, A_DIM);
+            mvwprintw(win, 1, rx, "%s", right);
+            wattroff(win, A_DIM);
+        }
+    }
+
+    /* Line 2: connectivity + devices */
     int col = margin;
     if (sysinfo_cache.wifi[0]) {
         wattron(win, COLOR_PAIR(1));
-        mvwprintw(win, 2, col, "W:%s", sysinfo_cache.wifi);
+        mvwprintw(win, 2, col, "wifi %s", sysinfo_cache.wifi);
         wattroff(win, COLOR_PAIR(1));
-        col += strlen(sysinfo_cache.wifi) + 5;
-    }
-    if (sysinfo_cache.bt[0]) {
-        wattron(win, COLOR_PAIR(1));
-        mvwprintw(win, 2, col, "B:%s", sysinfo_cache.bt);
-        wattroff(win, COLOR_PAIR(1));
-        col += strlen(sysinfo_cache.bt) + 5;
-    }
-    if (sysinfo_cache.vol[0]) {
-        mvwprintw(win, 2, col, "V:%s", sysinfo_cache.vol);
-        col += strlen(sysinfo_cache.vol) + 5;
-    }
-    if (sysinfo_cache.bat[0]) {
-        mvwprintw(win, 2, col, "BAT:%s", sysinfo_cache.bat);
-        col += strlen(sysinfo_cache.bat) + 7;
+        col += strlen(sysinfo_cache.wifi) + 7;
     }
     if (sysinfo_cache.ip[0]) {
         wattron(win, A_DIM);
-        mvwprintw(win, 2, col, "IP:%s", sysinfo_cache.ip);
+        mvwprintw(win, 2, col, "(%s)", sysinfo_cache.ip);
+        wattroff(win, A_DIM);
+        col += strlen(sysinfo_cache.ip) + 5;
+    }
+    if (sysinfo_cache.bt[0]) {
+        mvwprintw(win, 2, col, "bluetooth %s", sysinfo_cache.bt);
+        col += strlen(sysinfo_cache.bt) + 13;
+    }
+
+    /* Line 3: volume, battery, memory, load */
+    col = margin;
+    if (sysinfo_cache.vol[0]) {
+        mvwprintw(win, 3, col, "volume %s", sysinfo_cache.vol);
+        col += strlen(sysinfo_cache.vol) + 10;
+    }
+    if (sysinfo_cache.bat[0]) {
+        mvwprintw(win, 3, col, "battery %s", sysinfo_cache.bat);
+        col += strlen(sysinfo_cache.bat) + 11;
+    }
+    if (sysinfo_cache.mem[0]) {
+        mvwprintw(win, 3, col, "mem %s", sysinfo_cache.mem);
+        col += strlen(sysinfo_cache.mem) + 7;
+    }
+    if (sysinfo_cache.load[0]) {
+        wattron(win, A_DIM);
+        mvwprintw(win, 3, col, "load %s", sysinfo_cache.load);
         wattroff(win, A_DIM);
     }
 
-    mvwhline(win, 3, 0, ACS_HLINE, maxx);
+    mvwhline(win, 4, 0, ACS_HLINE, maxx);
 
-    /* Breadcrumb */
+    /* Breadcrumb — only show when not at root */
+    int menu_start = 5;
     char breadcrumb[512];
     build_breadcrumb(state->current_menu, breadcrumb, sizeof(breadcrumb));
-    wattron(win, A_BOLD | COLOR_PAIR(3));
-    mvwprintw(win, 4, margin, "%s", breadcrumb);
-    wattroff(win, A_BOLD | COLOR_PAIR(3));
-
-    mvwhline(win, 5, 0, ACS_HLINE, maxx);
-
-    /* Menu area */
-    int menu_start = 6;
+    if (state->current_menu->parent) {
+        wattron(win, A_BOLD | COLOR_PAIR(3));
+        mvwprintw(win, 5, margin, "%s", breadcrumb);
+        wattroff(win, A_BOLD | COLOR_PAIR(3));
+        menu_start = 6;
+    }
     int menu_height = maxy - menu_start - 2;
     int count = menu_child_count(state->current_menu);
 
