@@ -149,10 +149,7 @@ static void bt_refresh(MenuItem *module_root) {
     }
 }
 
-static MenuItem *bt_build_menu(void) {
-    MenuItem *root = menu_item_new("Bluetooth", "Manage Bluetooth devices", MENU_CATEGORY);
-
-    /* RF kill toggle */
+static void bt_lazy_load(MenuItem *root) {
     MenuItem *rf = menu_item_new("Bluetooth Enabled", "Toggle Bluetooth radio (rfkill)", MENU_TOGGLE);
     rf->on_activate = bt_rfkill_activate;
     char rfk[64];
@@ -160,7 +157,6 @@ static MenuItem *bt_build_menu(void) {
     rf->toggled = (strstr(rfk, "unblocked") != NULL);
     menu_add_child(root, rf);
 
-    /* Power toggle */
     MenuItem *pwr = menu_item_new("Powered", "Toggle Bluetooth controller power", MENU_TOGGLE);
     pwr->on_activate = bt_power_activate;
     char buf[256];
@@ -168,22 +164,23 @@ static MenuItem *bt_build_menu(void) {
     pwr->toggled = (strstr(buf, "Powered: yes") != NULL);
     menu_add_child(root, pwr);
 
-    /* Discoverable */
     MenuItem *disc = menu_item_new("Discoverable", "Make device discoverable", MENU_TOGGLE);
     disc->on_activate = bt_discoverable_activate;
     disc->toggled = (strstr(buf, "Discoverable: yes") != NULL);
     menu_add_child(root, disc);
 
-    /* Scan */
     MenuItem *scan = menu_item_new("Scan for Devices", "Search for nearby Bluetooth devices (4s)", MENU_ACTION);
     scan->on_activate = bt_scan_and_refresh;
     menu_add_child(root, scan);
 
-    /* Paired/known devices */
     MenuItem *devices = menu_item_new("Devices", "Known and paired Bluetooth devices", MENU_CATEGORY);
     menu_add_child(root, devices);
     rebuild_device_list(devices);
+}
 
+static MenuItem *bt_build_menu(void) {
+    MenuItem *root = menu_item_new("Bluetooth", "Manage Bluetooth devices", MENU_CATEGORY);
+    root->on_lazy_load = bt_lazy_load;
     return root;
 }
 
